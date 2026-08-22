@@ -1,0 +1,43 @@
+{
+  "name": "judge-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Private internal Judge-LLM evaluation microservice for Cosmic Guidance. Evaluates candidate models/prompts/batches offline; never serves user traffic.",
+  "scripts": {
+    "dev": "tsx server/index.ts",
+    "build": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "start": "NODE_ENV=production node dist/index.js",
+    "check": "tsc",
+    "db:push": "drizzle-kit push",
+    "datasets:validate": "tsx scripts/validate-datasets.ts",
+    "datasets:generate-synthetic": "tsx scripts/generate-synthetic-datasets.ts",
+    "test:unit": "tsx --test test/unit/*.test.ts",
+    "test:integration": "tsx --test test/integration/*.test.ts",
+    "test:e2e": "tsx --test test/e2e/*.test.ts",
+    "test": "tsx --test test/unit/*.test.ts test/integration/*.test.ts test/e2e/*.test.ts"
+  },
+  "dependencies": {
+    "@google-cloud/tasks": "^5.5.0",
+    "@google-cloud/secret-manager": "^5.6.0",
+    "drizzle-orm": "^0.36.4",
+    "pg": "^8.13.1",
+    "express": "^4.21.2",
+    "zod": "^3.24.1",
+    "jsonwebtoken": "^9.0.2",
+    "google-auth-library": "^9.15.0",
+    "dotenv": "^16.4.7",
+    "uuid": "^11.0.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.17.9",
+    "@types/pg": "^8.11.10",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/uuid": "^11.0.0",
+    "drizzle-kit": "^0.28.1",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Judge-LLM Admin</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; background: #0b0f19; color: #e6e9f0; }
+  h1, h2 { color: #fff; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
+  th, td { border: 1px solid #2a3040; padding: 6px 10px; text-align: left; font-size: 0.9rem; }
+  th { background: #151a27; }
+  .pass { color: #4ade80; } .hold { color: #facc15; } .rollback { color: #f87171; }
+  input, button { padding: 6px 10px; margin-right: 8px; }
+  section { margin-bottom: 2.5rem; scroll-margin-top: 4.5rem; }
+  .error-row { background: #2a1418; }
+  .status-failed { color: #f87171; font-weight: 600; }
+  .err-detail { color: #f87171; font-size: 0.85em; }
+  nav#page-nav { position: sticky; top: 0; background: #0b0f19; padding: 10px 0; border-bottom: 1px solid #2a3040; z-index: 10; margin-bottom: 1.5rem; }
+  nav#page-nav a { color: #9aa4b8; text-decoration: none; margin-right: 1.25rem; font-size: 0.9rem; }
+  nav#page-nav a:hover { color: #fff; }
+  .report-card { border: 1px solid #2a3040; border-radius: 6px; padding: 14px 16px; margin-bottom: 1rem; background: #10141f; }
+  .report-card h4 { margin: 0 0 6px 0; color: #fff; }
+  .gate-hard { font-weight: 600; }
+  .gate-fail { color: #f87171; }
+  .gate-pass { color: #4ade80; }
+  .summary-banner { padding: 10px 14px; border-radius: 6px; margin-bottom: 1rem; font-weight: 600; }
+  .summary-banner.pass { background: #14291d; }
+  .summary-banner.hold { background: #2c260f; }
+  .summary-banner.rollback { background: #2a1418; }
+  .reasons-list { margin: 6px 0 0 0; padding-left: 1.2rem; font-weight: normal; color: #cbd3e1; }
+  details.job-detail summary { cursor: pointer; color: #cbd3e1; padding: 4px 0; }
+</style>
+</head>
+<body>
+<h1>Judge-LLM Admin Dashboard</h1>
+<nav id="page-nav">
+  <a href="#experiments-section">Experiments</a>
+  <a href="#results-section">Results</a>
+  <a href="#reviews-section">Human Review</a>
+  <a href="#detail-section">Token/Cost Detail</a>
+  <a href="#report-section">Full Report</a>
+  <a href="#config-section">Judge Models</a>
+</nav>
+<p>Read-only view over the Judge service's experiment/results/review API. Enter the admin shared secret (never stored beyond this page session) to load data.</p>
+<div>
+  <input id="secret" type="password" placeholder="x-judge-admin-secret" size="40" />
+  <input id="actor" type="text" placeholder="your name (x-judge-actor)" size="20" />
+  <button onclick="loadAll()">Load</button>
+</div>
+
+<section id="experiments-section">
+  <h2>Experiments</h2>
+  <table id="experiments"><thead><tr><th>Name</th><th>Track</th><th>Baseline</th><th>Candidate</th><th>Status</th><th>Failed jobs</th><th>Created</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section id="results-section">
+  <h2>Latest Results</h2>
+  <p style="color:#9aa4b8;">Where a track pools multiple reading types (e.g. brief_readings), the per-tag row below the aggregate shows each reading type's own recommendation — the aggregate recommendation is the worst of all of them, never a blended-away pass.</p>
+  <table id="results"><thead><tr><th>Experiment</th><th>N</th><th>Win+Tie</th><th>Hard Failures</th><th>Judge Agreement</th><th>Recommendation</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section id="reviews-section">
+  <h2>Human Review Queue (pending)</h2>
+  <table id="reviews"><thead><tr><th>Job</th><th>Experiment</th><th>Reason</th><th>Created</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section id="detail-section">
+  <h2>Token / Cost / Latency Detail</h2>
+  <p style="color:#9aa4b8;">Per-job breakdown for one experiment (drill-down from the aggregate above). Rows in red are jobs/generations that failed — hover the error text for the reason.</p>
+  <select id="detail-experiment"></select>
+  <button onclick="loadGenerationDetail()">Load detail</button>
+  <button onclick="retryFailedJobs()">Retry failed jobs</button>
+  <span id="retry-status"></span>
+  <table id="generations">
+    <thead><tr><th>Job</th><th>Job status</th><th>Arm</th><th>Model</th><th>Prompt tok</th><th>Completion tok</th><th>Latency ms</th><th>Cost USD</th><th>Schema valid</th><th>Error</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <table id="judge-scores" style="margin-top: -1rem;">
+    <thead><tr><th>Job</th><th>Judge role</th><th>Model</th><th>Winner</th><th>Confidence</th><th>Latency ms</th><th>Cost USD</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<section id="report-section">
+  <h2>Full Report</h2>
+  <p style="color:#9aa4b8;">
+    Per-experiment detail: which prompt/dataset case every job checked, what CG's baseline/candidate
+    models were, what other models have been tried on this same track, every rubric dimension's score
+    and justification per model (grounding, personalization, safety, etc. — see judge-llm-evaluation-framework.md §3/§4),
+    hard-gate pass/fail, and a plain-language summary of why the experiment passed or failed.
+  </p>
+  <select id="report-experiment"></select>
+  <button onclick="loadExperimentReport()">Load report</button>
+  <div id="report-output"></div>
+</section>
+
+<section id="config-section">
+  <h2>Judge Models (config: <code>global</code>)</h2>
+  <p style="color:#9aa4b8; max-width: 60ch;">
+    Provider/model are plain strings — nothing here is hardcoded in service
+    code. Suggestions are just a convenience list; type any model name your
+    provider supports. Saving publishes a new config version (previous
+    versions stay in the audit trail, nothing is overwritten).
+  </p>
+  <datalist id="model-suggestions">
+    <option value="claude-opus-5">
+    <option value="claude-sonnet-5">
+    <option value="claude-fable-5">
+    <option value="claude-haiku-4-5-20251001">
+    <option value="gpt-5">
+    <option value="gpt-5-mini">
+    <option value="gpt-4o">
+    <option value="gpt-4o-mini">
+  </datalist>
+  <table>
+    <thead><tr><th>Role</th><th>Provider</th><th>Model</th><th>Secret ref</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Primary judge</td>
+        <td><select id="primary-provider"><option value="anthropic">anthropic</option><option value="openai">openai</option><option value="mock">mock</option></select></td>
+        <td><input id="primary-model" list="model-suggestions" size="28" /></td>
+        <td><input id="primary-secretref" size="24" /></td>
+      </tr>
+      <tr>
+        <td>Secondary judge</td>
+        <td><select id="secondary-provider"><option value="anthropic">anthropic</option><option value="openai">openai</option><option value="mock">mock</option></select></td>
+        <td><input id="secondary-model" list="model-suggestions" size="28" /></td>
+        <td><input id="secondary-secretref" size="24" /></td>
+      </tr>
+    </tbody>
+  </table>
+  <label>Secondary judge sample rate (0–1): <input id="secondary-sample-rate" type="number" min="0" max="1" step="0.05" size="4" /></label>
+  <div style="margin-top: 10px;">
+    <button onclick="saveJudgeModels()">Save judge models</button>
+    <span id="save-status"></span>
+  </div>
+
+  <h3 style="margin-top: 2rem;">Cost rates (USD per 1k tokens)</h3>
+  <p style="color:#9aa4b8; max-width: 60ch;">
+    Cost shows "n/a" for any model with no rate below — this is the only
+    place that fills in Cost USD in the detail table above. Add one row per
+    model actually used (baseline, candidate, and both judge models).
+  </p>
+  <table>
+    <thead><tr><th>Model</th><th>Prompt $/1k</th><th>Completion $/1k</th><th></th></tr></thead>
+    <tbody id="cost-rates-body"></tbody>
+  </table>
+  <button onclick="addCostRateRow('', 0, 0)">+ Add model</button>
+</section>
+
+<script>
+function headers() {
+  return { "content-type": "application/json", "x-judge-admin-secret": document.getElementById("secret").value, "x-judge-actor": document.getElementById("actor").value || "dashboard-user" };
+}
+
+let currentConfig = null; // full active JudgeConfig, so saving only the model fields never drops thresholds/rateLimits/etc.
+
+async function loadConfig() {
+  const res = await fetch("/api/admin/config/global", { headers: headers() });
+  if (!res.ok) return; // no config published yet — leave the form blank
+  const active = await res.json();
+  currentConfig = active.value;
+  document.getElementById("primary-provider").value = currentConfig.providers.primary_judge.provider;
+  document.getElementById("primary-model").value = currentConfig.providers.primary_judge.model;
+  document.getElementById("primary-secretref").value = currentConfig.providers.primary_judge.secretRef;
+  document.getElementById("secondary-provider").value = currentConfig.providers.secondary_judge.provider;
+  document.getElementById("secondary-model").value = currentConfig.providers.secondary_judge.model;
+  document.getElementById("secondary-secretref").value = currentConfig.providers.secondary_judge.secretRef;
+  document.getElementById("secondary-sample-rate").value = currentConfig.secondaryJudgeSampleRate;
+
+  const costRatesBody = document.getElementById("cost-rates-body");
+  costRatesBody.innerHTML = "";
+  const rates = currentConfig.costRatesUsdPer1kTokens ?? {};
+  for (const [model, rate] of Object.entries(rates)) {
+    addCostRateRow(model, rate.promptPer1k, rate.completionPer1k);
+  }
+}
+
+function addCostRateRow(model, promptPer1k, completionPer1k) {
+  const row = document.createElement("tr");
+  row.innerHTML = `<td><input class="cr-model" list="model-suggestions" value="${model}" size="28" /></td>
+    <td><input class="cr-prompt" type="number" min="0" step="0.0001" value="${promptPer1k}" size="8" /></td>
+    <td><input class="cr-completion" type="number" min="0" step="0.0001" value="${completionPer1k}" size="8" /></td>
+    <td><button onclick="this.closest('tr').remove()">Remove</button></td>`;
+  document.getElementById("cost-rates-body").appendChild(row);
+}
+
+function collectCostRates() {
+  const rates = {};
+  for (const row of document.querySelectorAll("#cost-rates-body tr")) {
+    const model = row.querySelector(".cr-model").value.trim();
+    if (!model) continue;
+    rates[model] = {
+      promptPer1k: Number(row.querySelector(".cr-prompt").value),
+      completionPer1k: Number(row.querySelector(".cr-completion").value),
+    };
+  }
+  return rates;
+}
+
+async function saveJudgeModels() {
+  const statusEl = document.getElementById("save-status");
+  statusEl.textContent = "Saving…";
+  const base = currentConfig ?? { providers: {}, costRatesUsdPer1kTokens: {} };
+  const updated = {
+    ...base,
+    providers: {
+      primary_judge: {
+        provider: document.getElementById("primary-provider").value,
+        model: document.getElementById("primary-model").value.trim(),
+        secretRef: document.getElementById("primary-secretref").value.trim(),
+      },
+      secondary_judge: {
+        provider: document.getElementById("secondary-provider").value,
+        model: document.getElementById("secondary-model").value.trim(),
+        secretRef: document.getElementById("secondary-secretref").value.trim(),
+      },
+    },
+    costRatesUsdPer1kTokens: collectCostRates(),
+    secondaryJudgeSampleRate: Number(document.getElementById("secondary-sample-rate").value),
+  };
+  try {
+    const res = await fetch("/api/admin/config", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ configKey: "global", value: updated }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.details || json.error || `HTTP ${res.status}`);
+    statusEl.textContent = `Saved as config version ${json.version}.`;
+    await loadConfig();
+  } catch (err) {
+    statusEl.textContent = `Failed: ${err.message}`;
+  }
+}
+
+let loadedExperiments = [];
+
+async function loadGenerationDetail() {
+  const expId = document.getElementById("detail-experiment").value;
+  if (!expId) return;
+  const data = await fetch(`/api/admin/experiments/${expId}/generations`, { headers: headers() }).then((r) => r.json());
+
+  const genBody = document.querySelector("#generations tbody");
+  genBody.innerHTML = "";
+  const scoreBody = document.querySelector("#judge-scores tbody");
+  scoreBody.innerHTML = "";
+
+  for (const job of data.jobs ?? []) {
+    const shortJob = job.jobId.slice(0, 8);
+    const jobFailed = job.status === "failed";
+    const statusCell = jobFailed ? `<span class="status-failed" title="${job.lastError ?? ""}">${job.status}</span>` : job.status;
+    if (jobFailed && job.generations.length === 0) {
+      genBody.innerHTML += `<tr class="error-row"><td>${shortJob}</td><td>${statusCell}</td><td colspan="7"></td><td class="err-detail">${job.lastError ?? "job failed before generation"}</td></tr>`;
+    }
+    for (const g of job.generations) {
+      const genFailed = jobFailed || Boolean(g.error);
+      genBody.innerHTML += `<tr class="${genFailed ? "error-row" : ""}"><td>${shortJob}</td><td>${statusCell}</td><td>${g.arm}</td><td>${g.model}</td><td>${g.tokensPrompt ?? "n/a"}</td><td>${g.tokensCompletion ?? "n/a"}</td><td>${g.latencyMs ?? "n/a"}</td><td>${g.costUsd ?? "n/a"}</td><td>${g.schemaValid}</td><td class="err-detail">${g.error ?? ""}</td></tr>`;
+    }
+    for (const s of job.judgeScores) {
+      scoreBody.innerHTML += `<tr><td>${shortJob}</td><td>${s.judgeRole}</td><td>${s.model}</td><td>${s.pairwiseWinner ?? "n/a"}</td><td>${s.confidenceLevel ?? "n/a"}</td><td>${s.latencyMs ?? "n/a"}</td><td>${s.costUsd ?? "n/a"}</td></tr>`;
+    }
+  }
+}
+
+async function retryFailedJobs() {
+  const expId = document.getElementById("detail-experiment").value;
+  if (!expId) return;
+  const statusEl = document.getElementById("retry-status");
+  statusEl.textContent = "Retrying…";
+  try {
+    const res = await fetch(`/api/admin/experiments/${expId}/retry-failed`, { method: "POST", headers: headers() });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    statusEl.textContent = `Retried ${json.retried} job(s).`;
+    await loadGenerationDetail();
+  } catch (err) {
+    statusEl.textContent = `Failed: ${err.message}`;
+  }
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderDimensionTable(dimensions, byArm) {
+  const arms = Object.keys(byArm ?? {});
+  if (arms.length === 0) return "<p style=\"color:#9aa4b8;\">No judge score recorded for this job.</p>";
+  let rows = "";
+  for (const dim of dimensions) {
+    const cells = arms
+      .map((arm) => {
+        const d = byArm[arm]?.[dim.key];
+        if (!d) return "<td>n/a</td>";
+        return `<td title="${esc(d.justification)}">${d.score}/5</td>`;
+      })
+      .join("");
+    rows += `<tr><td>${esc(dim.label)}${dim.gate === "hard" ? ' <span class="gate-hard">(HARD)</span>' : ""}</td>${cells}</tr>`;
+  }
+  return `<table><thead><tr><th>Dimension</th>${arms.map((a) => `<th>${esc(a)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderHardGates(byArm) {
+  const arms = Object.keys(byArm ?? {});
+  const parts = [];
+  for (const arm of arms) {
+    for (const [gate, result] of Object.entries(byArm[arm] ?? {})) {
+      if (!result.pass) parts.push(`<span class="gate-fail">${esc(arm)}/${esc(gate)}: FAILED — ${esc(result.violationDetail)}</span>`);
+    }
+  }
+  return parts.length ? parts.join("<br/>") : '<span class="gate-pass">All hard gates passed.</span>';
+}
+
+function renderJudgeBlock(label, judge) {
+  if (!judge) return "";
+  const winner = judge.winnerArm === null ? "n/a" : judge.winnerArm;
+  return `
+    <p><strong>${label} judge:</strong> ${esc(judge.provider)}/${esc(judge.model)} — winner: <strong>${esc(winner)}</strong>, confidence: ${esc(judge.confidenceLevel)}</p>
+    <p style="color:#cbd3e1;"><em>Rationale:</em> ${esc(judge.rationale)}</p>
+    <p><em>Hard gates:</em><br/>${renderHardGates(judge.hardGateResultsByArm)}</p>
+  `;
+}
+
+async function loadExperimentReport() {
+  const expId = document.getElementById("report-experiment").value;
+  if (!expId) return;
+  const out = document.getElementById("report-output");
+  out.innerHTML = "Loading…";
+  const report = await fetch(`/api/admin/experiments/${expId}/report`, { headers: headers() }).then((r) => r.json());
+  if (report.error) {
+    out.innerHTML = `<p class="rollback">${esc(report.error)}</p>`;
+    return;
+  }
+
+  const e = report.experiment;
+  let html = `<div class="report-card">
+    <h4>${esc(e.name)}</h4>
+    <p>Track: <strong>${esc(e.track)}</strong> — Status: ${esc(e.status)} — Created: ${new Date(e.createdAt).toLocaleString()}</p>
+    <p>CG baseline model: <strong>${esc(e.baselineModel)}</strong> (prompt ${esc(e.baselinePromptVersion)}) &nbsp;|&nbsp;
+       CG candidate model: <strong>${esc(e.candidateModel)}</strong> (prompt ${esc(e.candidatePromptVersion)})</p>
+  </div>`;
+
+  if (report.otherModelsTriedOnTrack?.length) {
+    html += `<div class="report-card"><h4>Other models tried on track "${esc(e.track)}"</h4><table>
+      <thead><tr><th>Experiment</th><th>Baseline</th><th>Candidate</th><th>Status</th><th>Created</th></tr></thead><tbody>`;
+    for (const o of report.otherModelsTriedOnTrack) {
+      html += `<tr><td>${esc(o.name)}</td><td>${esc(o.baselineModel)}</td><td>${esc(o.candidateModel)}</td><td>${esc(o.status)}</td><td>${new Date(o.createdAt).toLocaleString()}</td></tr>`;
+    }
+    html += "</tbody></table></div>";
+  } else {
+    html += `<div class="report-card" style="color:#9aa4b8;">No other experiments have been run on the "${esc(e.track)}" track yet.</div>`;
+  }
+
+  const r = report.latestResult;
+  if (r) {
+    html += `<div class="summary-banner ${r.recommendation}">
+      Recommendation: ${r.recommendation.toUpperCase()} — sample size ${r.sampleSize}, win+tie ${((r.winRate + r.tieRate) * 100).toFixed(0)}%,
+      judge agreement ${r.judgeAgreementRate !== null ? (r.judgeAgreementRate * 100).toFixed(0) + "%" : "n/a"}, hard failures ${r.hardGateFailureCount}
+      <ul class="reasons-list">${(r.recommendationReasons ?? []).map((reason) => `<li>${esc(reason)}</li>`).join("")}</ul>
+    </div>`;
+    if (r.perTagResults && Object.keys(r.perTagResults).length) {
+      html += `<div class="report-card"><h4>Per reading-type breakdown</h4><table>
+        <thead><tr><th>Tag</th><th>N</th><th>Win+Tie</th><th>Recommendation</th><th>Why</th></tr></thead><tbody>`;
+      for (const [tag, tr] of Object.entries(r.perTagResults)) {
+        html += `<tr><td>${esc(tag)}</td><td>${tr.stats.sampleSize}</td><td>${((tr.stats.winRate + tr.stats.tieRate) * 100).toFixed(0)}%</td><td class="${tr.decision.recommendation}">${tr.decision.recommendation.toUpperCase()}</td><td>${esc((tr.decision.reasons ?? []).join("; "))}</td></tr>`;
+      }
+      html += "</tbody></table></div>";
+    }
+  } else {
+    html += `<div class="report-card" style="color:#9aa4b8;">No results computed yet for this experiment — run "compute-results" first.</div>`;
+  }
+
+  html += `<h3>Per-job detail (${report.jobs.length} job${report.jobs.length === 1 ? "" : "s"})</h3>`;
+  for (const job of report.jobs) {
+    const genRows = job.generations
+      .map((g) => `<tr><td>${esc(g.arm)}</td><td>${esc(g.model)}</td><td>${esc(g.promptVersion)}</td><td>${g.tokensPrompt ?? "n/a"}</td><td>${g.tokensCompletion ?? "n/a"}</td><td>${g.costUsd ?? "n/a"}</td><td>${g.schemaValid}</td><td class="err-detail">${esc(g.error ?? "")}</td></tr>`)
+      .join("");
+    html += `<details class="job-detail"><summary>Job ${job.jobId.slice(0, 8)} — case "${esc(job.caseKey)}" — prompt ${esc(job.promptVersion)} — ${esc(job.status)}${job.lastError ? ` — <span class="rollback">${esc(job.lastError)}</span>` : ""}</summary>
+      <div class="report-card">
+        <p><em>Tags:</em> ${(job.tags ?? []).map(esc).join(", ") || "none"}</p>
+        <table><thead><tr><th>Arm</th><th>Model</th><th>Prompt</th><th>Prompt tok</th><th>Completion tok</th><th>Cost USD</th><th>Schema valid</th><th>Error</th></tr></thead><tbody>${genRows}</tbody></table>
+        <h4>Dimension scores — primary judge</h4>
+        ${job.judge.primary ? renderDimensionTable(report.dimensions, job.judge.primary.dimensionScoresByArm) : '<p style="color:#9aa4b8;">No primary judge score.</p>'}
+        ${renderJudgeBlock("Primary", job.judge.primary)}
+        ${job.judge.secondary ? `<h4>Dimension scores — secondary judge</h4>${renderDimensionTable(report.dimensions, job.judge.secondary.dimensionScoresByArm)}${renderJudgeBlock("Secondary", job.judge.secondary)}` : ""}
+      </div>
+    </details>`;
+  }
+  out.innerHTML = html;
+}
+
+async function loadAll() {
+  await loadConfig();
+  const experiments = await fetch("/api/admin/experiments", { headers: headers() }).then(r => r.json());
+  const tbody = document.querySelector("#experiments tbody");
+  tbody.innerHTML = "";
+  for (const e of experiments.experiments ?? []) {
+    const gen = await fetch(`/api/admin/experiments/${e.id}/generations`, { headers: headers() }).then(r => r.json());
+    const failedCount = (gen.jobs ?? []).filter((j) => j.status === "failed").length;
+    const failedCell = failedCount > 0 ? `<span class="status-failed">${failedCount}</span>` : "0";
+    tbody.innerHTML += `<tr><td>${e.name}</td><td>${e.track}</td><td>${e.baselineModel}</td><td>${e.candidateModel}</td><td>${e.status}</td><td>${failedCell}</td><td>${new Date(e.createdAt).toLocaleString()}</td></tr>`;
+  }
+
+  loadedExperiments = experiments.experiments ?? [];
+  const optionsHtml = loadedExperiments.map((e) => `<option value="${e.id}">${e.name}</option>`).join("");
+  document.getElementById("detail-experiment").innerHTML = optionsHtml;
+  document.getElementById("report-experiment").innerHTML = optionsHtml;
+
+  const resultsBody = document.querySelector("#results tbody");
+  resultsBody.innerHTML = "";
+  for (const e of experiments.experiments ?? []) {
+    const r = await fetch(`/api/admin/experiments/${e.id}/results`, { headers: headers() }).then(res => res.json());
+    const latest = (r.results ?? []).at(-1);
+    if (!latest) continue;
+    resultsBody.innerHTML += `<tr><td>${e.name}</td><td>${latest.sampleSize}</td><td>${((latest.winRate + latest.tieRate) * 100).toFixed(0)}%</td><td>${latest.hardGateFailureCount}</td><td>${latest.judgeAgreementRate ? (latest.judgeAgreementRate * 100).toFixed(0) + "%" : "n/a"}</td><td class="${latest.recommendation}">${latest.recommendation.toUpperCase()}</td></tr>`;
+    for (const [tag, r2] of Object.entries(latest.perTagResults ?? {})) {
+      const s = r2.stats, d = r2.decision;
+      resultsBody.innerHTML += `<tr style="color:#9aa4b8;"><td>&nbsp;&nbsp;↳ ${tag}</td><td>${s.sampleSize}</td><td>${((s.winRate + s.tieRate) * 100).toFixed(0)}%</td><td>${s.hardGateFailureCount}</td><td>${s.judgeAgreementRate ? (s.judgeAgreementRate * 100).toFixed(0) + "%" : "n/a"}</td><td class="${d.recommendation}" title="${(d.reasons ?? []).join('; ')}">${d.recommendation.toUpperCase()}</td></tr>`;
+    }
+  }
+
+  const reviews = await fetch("/api/admin/human-review", { headers: headers() }).then(r => r.json());
+  const reviewBody = document.querySelector("#reviews tbody");
+  reviewBody.innerHTML = "";
+  for (const rv of reviews.reviews ?? []) {
+    reviewBody.innerHTML += `<tr><td>${rv.jobId}</td><td>${rv.experimentId}</td><td>${rv.reason}</td><td>${new Date(rv.createdAt).toLocaleString()}</td></tr>`;
+  }
+}
+</script>
+</body>
+</html>
