@@ -62,10 +62,10 @@ judge-service/
 
 The Judge service owns its **own** Postgres database (`JUDGE_DATABASE_URL`), completely separate from Cosmic Guidance's product DB. No table here has a foreign key into a Cosmic Guidance user/profile/subscription/credit/conversation/reading row — only opaque case identifiers and de-identified input snapshots.
 
-Tables (see `migrations/0001_init.sql` / `shared/schema.ts`):
-`eval_datasets`, `eval_dataset_cases`, `eval_config_versions`, `eval_experiments`, `eval_jobs`, `eval_generations`, `eval_deterministic_results`, `eval_judge_scores`, `eval_human_review_queue`, `eval_results_summaries`, `eval_audit_log`, `eval_idempotency_keys`.
+Tables (see `migrations/0001_init.sql`, `migrations/0002_add_per_tag_results.sql`, and `migrations/0003_benchmark_dataset_and_generation_runs.sql` / `shared/schema.ts`):
+`eval_datasets`, `eval_dataset_subjects`, `eval_dataset_cases`, `eval_config_versions`, `eval_reference_runs`, `eval_reference_generations`, `eval_experiments`, `eval_jobs`, `eval_generation_runs`, `eval_generations`, `eval_deterministic_results`, `eval_judge_scores`, `eval_human_review_queue`, `eval_results_summaries`, `eval_audit_log`, `eval_idempotency_keys`.
 
-Apply the migration with `psql "$JUDGE_DATABASE_URL" -f migrations/0001_init.sql`, or `npm run db:push` (drizzle-kit push) against `shared/schema.ts`.
+Apply migrations in order with `psql "$JUDGE_DATABASE_URL" -f migrations/0001_init.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0002_add_per_tag_results.sql`, and `psql "$JUDGE_DATABASE_URL" -f migrations/0003_benchmark_dataset_and_generation_runs.sql`, or use `npm run db:push` (drizzle-kit push) against `shared/schema.ts`.
 
 ## Configuration — nothing hardcoded
 
@@ -100,6 +100,8 @@ docker run -d --name judge-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=judge
 
 # 2. Apply the schema:
 psql "postgres://postgres:postgres@localhost:55432/judge_llm" -f migrations/0001_init.sql
+psql "postgres://postgres:postgres@localhost:55432/judge_llm" -f migrations/0002_add_per_tag_results.sql
+psql "postgres://postgres:postgres@localhost:55432/judge_llm" -f migrations/0003_benchmark_dataset_and_generation_runs.sql
 
 # 3. Validate the seed datasets (no DB needed):
 npm run datasets:validate
