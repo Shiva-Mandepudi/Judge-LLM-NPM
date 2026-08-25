@@ -37,7 +37,7 @@ export const anthropicProvider: JudgeProvider = {
       promptTokens: json.usage.input_tokens,
       completionTokens: json.usage.output_tokens,
       latencyMs,
-      costUsd: null, // cost computed by the caller from admin-configured per-model rates, never hardcoded here
+      costUsd: null,
     };
   },
 };

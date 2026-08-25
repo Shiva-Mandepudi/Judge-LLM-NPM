@@ -1,14 +1,29 @@
 import { Router } from "express";
 import { z } from "zod";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "../db.js";
 import { publishConfigVersion, getActiveConfig } from "../config/config-service.js";
 import { judgeConfigSchema } from "../../shared/config-schema.js";
 import { registerDataset } from "../services/dataset-service.js";
 import { listPendingReviews, resolveReview } from "../services/human-review-service.js";
-import { evalAuditLog } from "../../shared/schema.js";
+import { evalAuditLog, evalDatasets, evalDatasetCases, evalReferenceRuns } from "../../shared/schema.js";
 
 export const adminRouter = Router();
+
+adminRouter.get("/datasets", async (_req, res) => {
+  const datasets = await db.select().from(evalDatasets).orderBy(desc(evalDatasets.createdAt));
+  const result = await Promise.all(datasets.map(async (dataset) => {
+    const cases = await db.select({ goldOutput: evalDatasetCases.goldOutput, promptVersion: evalDatasetCases.promptVersion }).from(evalDatasetCases).where(eq(evalDatasetCases.datasetId, dataset.id));
+    const referenceRuns = await db.select({ id: evalReferenceRuns.id, name: evalReferenceRuns.name, model: evalReferenceRuns.model, status: evalReferenceRuns.status, completedCount: evalReferenceRuns.completedCount, caseCount: evalReferenceRuns.caseCount }).from(evalReferenceRuns).where(eq(evalReferenceRuns.datasetId, dataset.id)).orderBy(desc(evalReferenceRuns.createdAt));
+    return {
+      ...dataset,
+      groundTruthCount: cases.filter((row) => row.goldOutput !== null).length,
+      promptVersion: cases[0]?.promptVersion ?? null,
+      referenceRuns,
+    };
+  }));
+  res.json({ datasets: result });
+});
 
 adminRouter.post("/config", async (req, res) => {
   const schema = z.object({ configKey: z.string().min(1).default("global"), value: judgeConfigSchema });

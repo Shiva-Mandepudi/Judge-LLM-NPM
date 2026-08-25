@@ -1,6 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import type { Db } from "../db.js";
-import { evalExperiments, evalDatasetCases, evalJobs, type EvalTrack } from "../../shared/schema.js";
+import { evalExperiments, evalDatasetCases, evalJobs, evalReferenceRuns, evalReferenceGenerations, type EvalTrack } from "../../shared/schema.js";
 import { getActiveConfig } from "../config/config-service.js";
 import { enqueueJobTask } from "../workers/cloud-tasks-client.js";
 import { runJob } from "../workers/job-runner.js";
@@ -16,10 +16,30 @@ export interface CreateExperimentParams {
   baselinePromptVersion: string;
   candidatePromptVersion: string;
   createdBy: string;
+  comparisonType?: "model" | "execution_mode" | "ground_truth";
+  referenceRunId?: string;
 }
 
 export async function createExperiment(db: Db, params: CreateExperimentParams): Promise<{ id: string }> {
   const { id: configVersionId, value: config } = await getActiveConfig(db, "global");
+  const comparisonType = params.comparisonType ?? "model";
+
+  if (comparisonType === "ground_truth") {
+    const cases = await db.select({ id: evalDatasetCases.id, goldOutput: evalDatasetCases.goldOutput }).from(evalDatasetCases).where(eq(evalDatasetCases.datasetId, params.datasetId));
+    let referenceCaseIds = new Set<string>();
+    if (params.referenceRunId) {
+      const [reference] = await db.select().from(evalReferenceRuns).where(eq(evalReferenceRuns.id, params.referenceRunId));
+      if (!reference || reference.datasetId !== params.datasetId || reference.status !== "frozen") {
+        throw new Error("referenceRunId must identify a frozen reference run for the selected dataset.");
+      }
+      const referenceRows = await db.select({ caseId: evalReferenceGenerations.caseId, parsedOutput: evalReferenceGenerations.parsedOutput }).from(evalReferenceGenerations).where(eq(evalReferenceGenerations.referenceRunId, params.referenceRunId));
+      referenceCaseIds = new Set(referenceRows.filter((row) => row.parsedOutput && typeof row.parsedOutput === "object").map((row) => row.caseId));
+    }
+    const missingGroundTruth = cases.filter((row) => row.goldOutput === null && !referenceCaseIds.has(row.id));
+    if (cases.length === 0 || missingGroundTruth.length > 0) {
+      throw new Error(`Ground-truth comparison is incomplete: ${missingGroundTruth.length || cases.length} dataset case(s) have no immutable reference output.`);
+    }
+  }
 
   const [experiment] = await db
     .insert(evalExperiments)
@@ -34,6 +54,8 @@ export async function createExperiment(db: Db, params: CreateExperimentParams): 
       configVersionId,
       secondaryJudgeSampleRate: config.secondaryJudgeSampleRate,
       createdBy: params.createdBy,
+      comparisonType,
+      referenceRunId: params.referenceRunId,
     })
     .returning();
 

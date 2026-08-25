@@ -2,14 +2,15 @@ import { z } from "zod";
 import { resolveSecret } from "../lib/secrets.js";
 import { getProvider } from "../providers/provider-factory.js";
 import { buildJudgePrompt, type JudgePromptInput } from "./judge-prompts.js";
-import { computeCostUsd } from "./cost-latency-service.js";
 import type { JudgeConfig, ProviderBinding } from "../../shared/config-schema.js";
 
-const dimensionScoreSchema = z.record(z.object({ score: z.number().int().min(1).max(5), justification: z.string() }));
+const legacyDimensionScoreSchema = z.record(z.object({ score: z.number().int().min(1).max(5), justification: z.string() }));
 const hardGateSchema = z.record(z.object({ pass: z.boolean(), violationDetail: z.string().nullable() }));
 
 const judgeOutputSchema = z.object({
-  dimensionScores: z.record(dimensionScoreSchema), // keyed by response label ("A" | "B")
+  // Compatibility field for historical rows. New judge calls do not request
+  // or store numeric aspect scores.
+  dimensionScores: z.record(legacyDimensionScoreSchema).default({}),
   hardGateResults: z.record(hardGateSchema), // keyed by response label
   pairwiseWinner: z.enum(["A", "B", "Tie"]).optional(),
   rationale: z.string(),
@@ -61,6 +62,6 @@ export async function callJudge(
     model: binding.model,
     rubricVersion: built.rubricVersion,
     latencyMs: result.latencyMs,
-    costUsd: result.costUsd ?? computeCostUsd(config, binding.model, result.promptTokens, result.completionTokens),
+    costUsd: result.costUsd ?? null,
   };
 }

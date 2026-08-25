@@ -74,6 +74,10 @@ export const evalDatasetCases = pgTable("eval_dataset_cases", {
   schemaVersion: text("schema_version"),
   calculatorVersion: text("calculator_version"),
   provenance: jsonb("provenance"),
+  // Immutable reference reading supplied by the dataset owner. When present,
+  // ground-truth comparisons use this output instead of regenerating the
+  // baseline through Cosmic Guidance.
+  goldOutput: jsonb("gold_output"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   datasetCaseUnique: unique().on(t.datasetId, t.caseKey),
@@ -267,7 +271,7 @@ export const evalJudgeScores = pgTable("eval_judge_scores", {
   provider: text("provider").notNull(),
   model: text("model").notNull(),
   rubricVersion: text("rubric_version").notNull(),
-  dimensionScores: jsonb("dimension_scores").notNull(), // { dimension: { score, justification } }
+  dimensionScores: jsonb("dimension_scores").notNull(), // legacy numeric aspect scores; new rows store {}
   hardGateResults: jsonb("hard_gate_results").notNull(), // { dimension: { pass, violationDetail } }
   pairwiseWinner: text("pairwise_winner"), // A | B | Tie | null for single-arm
   rationale: text("rationale"),
@@ -317,8 +321,6 @@ export const evalResultsSummaries = pgTable("eval_results_summaries", {
   // inside brief_readings) is visible instead of hidden in the blended
   // aggregate above (judge-llm-evaluation-framework.md §6.3).
   perTagResults: jsonb("per_tag_results"),
-  costComparison: jsonb("cost_comparison"),
-  latencyComparison: jsonb("latency_comparison"),
   computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

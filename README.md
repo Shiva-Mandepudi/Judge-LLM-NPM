@@ -35,9 +35,9 @@ Admin / operator                     Cosmic Guidance
    - Calls Cosmic Guidance's internal evaluation-generation interface twice (baseline arm, candidate arm) with the dataset case's de-identified input snapshot.
    - Runs **deterministic checks** (schema validity, numerology/date consistency, safety keyword screen) on each arm's output.
    - Randomly, blindly assigns the two arms to labels A/B (`assignBlindLabels`) so the judge never learns which label is baseline.
-   - Calls the **primary judge** (always) and, for a config-sampled fraction of jobs, the **secondary cross-vendor judge**, both with a JSON-schema-forced response (dimension scores per label, hard-gate pass/fail per label, pairwise winner, confidence).
+   - Calls the **primary judge** (always) and, for a config-sampled fraction of jobs, the **secondary cross-vendor judge**, both with a JSON-schema-forced response (hard-gate pass/fail per label, pairwise winner, rationale, confidence).
    - Persists every generation, deterministic result, and judge score row, and enqueues a **human review** item on hard-gate failure, judge disagreement, or low confidence.
-4. Once enough jobs are `completed`, `POST /api/admin/experiments/:id/compute-results` aggregates all completed jobs into per-dimension means, win/tie/loss rate, judge agreement rate, and a `pass | hold | rollback` **recommendation** — which is advisory only; nothing in this service ever writes to production model configuration.
+4. Once enough jobs are `completed`, `POST /api/admin/experiments/:id/compute-results` aggregates all completed jobs into an overall match percentage (from win/tie/loss outcomes), hard-gate results, judge agreement rate, and a `pass | hold | rollback` **recommendation** — which is advisory only; nothing in this service ever writes to production model configuration.
 
 ## Repository layout
 
@@ -65,11 +65,11 @@ The Judge service owns its **own** Postgres database (`JUDGE_DATABASE_URL`), com
 Tables (see `migrations/0001_init.sql`, `migrations/0002_add_per_tag_results.sql`, and `migrations/0003_benchmark_dataset_and_generation_runs.sql` / `shared/schema.ts`):
 `eval_datasets`, `eval_dataset_subjects`, `eval_dataset_cases`, `eval_config_versions`, `eval_reference_runs`, `eval_reference_generations`, `eval_experiments`, `eval_jobs`, `eval_generation_runs`, `eval_generations`, `eval_deterministic_results`, `eval_judge_scores`, `eval_human_review_queue`, `eval_results_summaries`, `eval_audit_log`, `eval_idempotency_keys`.
 
-Apply migrations in order with `psql "$JUDGE_DATABASE_URL" -f migrations/0001_init.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0002_add_per_tag_results.sql`, and `psql "$JUDGE_DATABASE_URL" -f migrations/0003_benchmark_dataset_and_generation_runs.sql`, or use `npm run db:push` (drizzle-kit push) against `shared/schema.ts`.
+Apply migrations in order with `psql "$JUDGE_DATABASE_URL" -f migrations/0001_init.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0002_add_per_tag_results.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0003_benchmark_dataset_and_generation_runs.sql`, and `psql "$JUDGE_DATABASE_URL" -f migrations/0004_ground_truth_comparisons.sql`, or use `npm run db:push` (drizzle-kit push) against `shared/schema.ts`.
 
 ## Configuration — nothing hardcoded
 
-Every model name, provider, threshold, sample rate, and cost rate is **admin-managed config**, stored versioned in `eval_config_versions` and published via `POST /api/admin/config`. Nothing in code names a specific model or price. See `shared/config-schema.ts` for the full shape. Example publish payload:
+Every judge provider, model, threshold, and sample rate is **admin-managed config**, stored versioned in `eval_config_versions` and published via `POST /api/admin/config`. Nothing in code names a specific model. See `shared/config-schema.ts` for the full shape. Example publish payload:
 
 ```json
 {
@@ -80,7 +80,6 @@ Every model name, provider, threshold, sample rate, and cost rate is **admin-man
       "secondary_judge": { "provider": "openai", "model": "<your-chosen-model>", "secretRef": "OPENAI_API_KEY" }
     },
     "secondaryJudgeSampleRate": 0.2,
-    "costRatesUsdPer1kTokens": { "<model-name>": { "promptPer1k": 0.0, "completionPer1k": 0.0 } },
     "thresholds": { "maxSoftDimensionDegradation": 0.3, "minWinPlusTieRate": 0.6, "minJudgeAgreementRate": 0.7 }
   }
 }
@@ -118,6 +117,18 @@ JUDGE_DATABASE_URL=postgres://postgres:postgres@localhost:55432/judge_llm npm ru
 # 6. Run the service itself (LOCAL_INLINE_WORKER=true in .env.example avoids needing Cloud Tasks locally):
 npm run dev
 ```
+
+Open `http://localhost:8081/` for the Judge landing page, then use its button
+to enter the authenticated admin dashboard. New dashboard comparisons use
+`comparisonType: "ground_truth"`: the selected dataset (or a frozen CG
+reference run) is the baseline, and only the selected comparison model is
+requested from CG. The dashboard reports candidate match percentage plus
+per-case inputs, outputs, and judge rationale; it does not present the removed
+cost-rate table or use cost as an evaluation signal.
+
+For CG generation comparisons, enter any `gpt-*` or `gemini-*` model ID in the
+dashboard. CG routes GPT models to OpenAI and Gemini models to Google AI while
+keeping the normal Cosmic Guidance production routing unchanged.
 
 ## Creating and running an experiment (local, mocked)
 
@@ -200,6 +211,6 @@ All 25 tests pass locally (9 unit-in-isolation + 4 additional unit + 11 integrat
 - **Live track coverage is intentionally partial** — the internal interface is implemented, but only the numerology adapter is currently allow-listed. Add future tracks by reusing their existing prompt builder, schema validator, and calculator rather than duplicating them here.
 - Rate limiting is per-instance in-memory (documented above); upgrade to a DB-backed limiter if cross-instance precision starts to matter.
 - Borderline non-inferiority results surface as `recommendation: "hold"` on the results summary (visible in the admin dashboard) rather than as a row in `eval_human_review_queue`, since a borderline result is a property of the aggregate experiment, not a single job — per-job triggers (hard-gate failure, judge disagreement, low confidence) do enqueue individual review-queue rows.
-- The admin dashboard is a single static read-only page (experiments, latest results, pending review queue); resolving a human-review item or publishing config must currently be done via the API directly (documented above), not a dashboard form.
+- The admin dashboard is a single static page over the authenticated API. It can create/enqueue comparisons and publish judge configuration; resolving a human-review item must still currently be done via the API directly.
 - No separate secondary Cloud Run service was created for the worker; the same service handles both the admin API and the Cloud Tasks push target behind path-based routing (`/api/admin/*` vs `/internal/worker/*`), each with its own auth middleware — simpler to operate than two services for this scale, revisit if worker and admin traffic need independent scaling policies.
 - Numerology's 100%-exhaustive protocol and the annual Personal Year refresh (framework doc §5) are supported structurally (dataset can contain all 142 cases; nothing samples), but no scheduler is wired up to trigger the annual re-run automatically — that's an operational cron to add when the calendar need arises.

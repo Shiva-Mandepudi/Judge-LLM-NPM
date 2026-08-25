@@ -14,6 +14,10 @@ app.use(express.json({ limit: "2mb" }));
 // Health/ready are unauthenticated for Cloud Run's own probes.
 app.use(healthRouter);
 
+app.get("/", (_req, res) => {
+  res.sendFile(path.resolve(process.cwd(), "admin-dashboard/landing.html"));
+});
+
 // Read-only static admin dashboard (calls the authenticated JSON API itself).
 app.use("/admin/dashboard", express.static(path.resolve(process.cwd(), "admin-dashboard")));
 

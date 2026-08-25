@@ -15,10 +15,16 @@ const createExperimentSchema = z.object({
   name: z.string().min(1),
   track: z.enum(evalTracks),
   datasetId: z.string().uuid(),
-  baselineModel: z.string().min(1),
+  baselineModel: z.string().min(1).default("dataset-ground-truth"),
   candidateModel: z.string().min(1),
-  baselinePromptVersion: z.string().min(1),
+  baselinePromptVersion: z.string().min(1).default("dataset-ground-truth"),
   candidatePromptVersion: z.string().min(1),
+  comparisonType: z.enum(["model", "execution_mode", "ground_truth"]).default("ground_truth"),
+  referenceRunId: z.string().uuid().optional(),
+}).superRefine((value, ctx) => {
+  if (value.comparisonType !== "ground_truth" && value.baselineModel === "dataset-ground-truth") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["baselineModel"], message: "baselineModel is required for model comparisons" });
+  }
 });
 
 async function rateLimited(_req: Request, res: Response): Promise<boolean> {
@@ -97,9 +103,9 @@ experimentsRouter.get("/:id/results", async (req, res) => {
   res.json({ results: rows });
 });
 
-// Per-job, per-arm token/cost/latency breakdown — the results summary above
-// only has the aggregate. This is the drill-down view for "where did the
-// cost/tokens actually go" without a direct DB query.
+// Per-job generation evidence — the results summary above only has the
+// aggregate. This is the drill-down view for the exact model output and
+// validation state without a direct DB query.
 experimentsRouter.get("/:id/generations", async (req, res) => {
   const jobs = await db.select().from(evalJobs).where(eq(evalJobs.experimentId, req.params.id)).orderBy(evalJobs.createdAt);
   const jobIds = jobs.map((j) => j.id);
@@ -123,10 +129,10 @@ experimentsRouter.get("/:id/generations", async (req, res) => {
         provider: g.provider,
         model: g.model,
         schemaValid: g.schemaValid,
+        output: g.parsedOutput,
         tokensPrompt: g.tokensPrompt,
         tokensCompletion: g.tokensCompletion,
         latencyMs: g.latencyMs,
-        costUsd: g.costUsd,
         error: g.error,
       })),
     judgeScores: judgeScores
@@ -138,7 +144,6 @@ experimentsRouter.get("/:id/generations", async (req, res) => {
         pairwiseWinner: s.pairwiseWinner,
         confidenceLevel: s.confidenceLevel,
         latencyMs: s.latencyMs,
-        costUsd: s.costUsd,
       })),
   }));
 
@@ -147,9 +152,8 @@ experimentsRouter.get("/:id/generations", async (req, res) => {
 
 // Full human-readable report: which prompt/dataset case each job checked,
 // what CG's baseline/candidate models were, what other models have been
-// tried on this same track, per-dimension judge scores decoded back to real
-// arm names (baseline/candidate, not blind A/B), hard-gate results, judge
-// rationale, and the pass/fail recommendation with its reasons.
+// tried on this same track, hard-gate results, judge rationale, and the
+// pass/fail recommendation with its reasons.
 experimentsRouter.get("/:id/report", async (req, res) => {
   try {
     const report = await buildExperimentReport(db, req.params.id);

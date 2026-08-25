@@ -12,6 +12,8 @@
     "db:push": "drizzle-kit push",
     "datasets:validate": "tsx scripts/validate-datasets.ts",
     "datasets:generate-synthetic": "tsx scripts/generate-synthetic-datasets.ts",
+    "benchmark:cb-actor-001": "tsx scripts/run-cb-actor-001-benchmark.ts",
+    "batch:import": "tsx scripts/import-openai-batch.ts",
     "test:unit": "tsx --test test/unit/*.test.ts",
     "test:integration": "tsx --test test/integration/*.test.ts",
     "test:e2e": "tsx --test test/e2e/*.test.ts",

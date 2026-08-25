@@ -5,31 +5,11 @@ import type { RubricDimension } from "./rubric.js";
 // draft-7-ish shape), mirroring the forced-schema pattern Cosmic Guidance
 // already uses for its own generation calls (per the framework doc §2.1/§10).
 //
-// Dimension scores are captured PER RESPONSE LABEL (not holistically for the
-// pair) so both statistical thresholds in the framework are computable from
-// one judge call: the per-dimension non-inferiority delta (needs a mean per
-// arm) and the pairwise win/tie/loss rate (needs the separate overall
-// preference field). `labels` is ["A"] for single-arm baseline-regression
-// tracks and ["A","B"] for comparative tracks.
+// Judges inspect every rubric dimension, but they do not emit a numeric score
+// for each aspect. The evaluation result is the pairwise percentage derived
+// from the winner/tie decision; hard gates remain pass/fail evidence.
 export function buildJudgeSchema(dimensions: RubricDimension[], labels: string[]): Record<string, unknown> {
   const hardOnly = dimensions.filter((d) => d.gate === "hard");
-
-  const perResponseDimensionSchema = {
-    type: "object",
-    properties: Object.fromEntries(
-      dimensions.map((d) => [
-        d.key,
-        {
-          type: "object",
-          properties: { score: { type: "integer", minimum: 1, maximum: 5 }, justification: { type: "string", minLength: 1 } },
-          required: ["score", "justification"],
-          additionalProperties: false,
-        },
-      ]),
-    ),
-    required: dimensions.map((d) => d.key),
-    additionalProperties: false,
-  };
 
   const perResponseHardGateSchema = {
     type: "object",
@@ -49,12 +29,6 @@ export function buildJudgeSchema(dimensions: RubricDimension[], labels: string[]
   };
 
   const properties: Record<string, unknown> = {
-    dimensionScores: {
-      type: "object",
-      properties: Object.fromEntries(labels.map((l) => [l, perResponseDimensionSchema])),
-      required: labels,
-      additionalProperties: false,
-    },
     hardGateResults: {
       type: "object",
       properties: Object.fromEntries(labels.map((l) => [l, perResponseHardGateSchema])),
@@ -69,7 +43,7 @@ export function buildJudgeSchema(dimensions: RubricDimension[], labels: string[]
       additionalProperties: false,
     },
   };
-  const required = ["dimensionScores", "hardGateResults", "rationale", "confidence"];
+  const required = ["hardGateResults", "rationale", "confidence"];
 
   if (labels.length === 2) {
     properties.pairwiseWinner = { enum: ["A", "B", "Tie"] };

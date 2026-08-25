@@ -35,16 +35,11 @@ export const retryPolicySchema = z.object({
 });
 export type RetryPolicy = z.infer<typeof retryPolicySchema>;
 
-export const costRateSchema = z.object({ promptPer1k: z.number().nonnegative(), completionPer1k: z.number().nonnegative() });
-
 export const judgeConfigSchema = z.object({
   providers: z.object({
     primary_judge: providerBindingSchema,
     secondary_judge: providerBindingSchema,
   }),
-  // Keyed by model name so cost is never hardcoded per provider — an admin
-  // updates this when pricing changes, no deploy required.
-  costRatesUsdPer1kTokens: z.record(costRateSchema).default({}),
   secondaryJudgeSampleRate: z.number().min(0).max(1).default(0.2),
   thresholds: acceptanceThresholdsSchema.default({}),
   rateLimits: rateLimitSchema.default({}),

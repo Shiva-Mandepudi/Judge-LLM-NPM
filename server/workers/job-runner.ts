@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import type { Db } from "../db.js";
-import { evalJobs, evalGenerations, evalDeterministicResults, evalJudgeScores, evalExperiments, evalDatasetCases } from "../../shared/schema.js";
+import { evalJobs, evalGenerations, evalDeterministicResults, evalJudgeScores, evalExperiments, evalDatasetCases, evalReferenceGenerations } from "../../shared/schema.js";
 import type { EvalTrack } from "../../shared/schema.js";
 import { getActiveConfig } from "../config/config-service.js";
 import { requestGeneration } from "../services/generation-client.js";
@@ -13,14 +13,13 @@ import { computeDimensionAgreement } from "../services/agreement-service.js";
 import { enqueueHumanReview } from "../services/human-review-service.js";
 import { logAudit } from "../services/audit-service.js";
 import { logger } from "../lib/logger.js";
-import type { GenerationRequest } from "../../shared/contract.js";
+import type { GenerationRequest, GenerationResponse } from "../../shared/contract.js";
 
 /**
- * Runs exactly one evaluation job end to end: generate baseline + candidate
- * via Cosmic Guidance's internal interface, run deterministic checks, call
- * the primary judge (and secondary, if sampled), persist every artifact, and
- * mark the job completed/failed. Invoked by the Cloud Tasks push handler —
- * never inline with a normal user request.
+ * Runs exactly one evaluation job end to end: load the immutable ground truth
+ * (or generate a legacy baseline), generate the selected candidate through
+ * Cosmic Guidance, run checks, call the judges, persist every artifact, and
+ * mark the job completed/failed. Invoked by Cloud Tasks — never a user path.
  */
 export async function runJob(db: Db, jobId: string): Promise<void> {
   const [job] = await db.select().from(evalJobs).where(eq(evalJobs.id, jobId));
@@ -40,33 +39,78 @@ export async function runJob(db: Db, jobId: string): Promise<void> {
 
     const blindLabelMap = job.blindLabelMap ?? assignBlindLabels(job.idempotencyKey);
 
-    const arms: Array<{ arm: Arm; model: string; promptVersion: string }> = [
-      { arm: "baseline", model: experiment.baselineModel, promptVersion: experiment.baselinePromptVersion },
-      { arm: "candidate", model: experiment.candidateModel, promptVersion: experiment.candidatePromptVersion },
-    ];
+    const candidateRequest: GenerationRequest = {
+      track,
+      arm: "candidate",
+      model: experiment.candidateModel,
+      promptVersion: experiment.candidatePromptVersion,
+      inputSnapshot: datasetCase.inputSnapshot as Record<string, unknown>,
+      requestId: `${job.idempotencyKey}:candidate`,
+    };
 
-    const generations = await Promise.all(
-      arms.map(async ({ arm, model, promptVersion }) => {
-        const request: GenerationRequest = {
-          track,
-          arm,
-          model,
-          promptVersion,
-          inputSnapshot: datasetCase.inputSnapshot as Record<string, unknown>,
-          requestId: `${job.idempotencyKey}:${arm}`,
-        };
-        const response = await requestGeneration(request, config.retryPolicy);
-        return { arm, response };
-      }),
-    );
+    const candidateGeneration = async () => ({
+      arm: "candidate" as const,
+      response: await requestGeneration(candidateRequest, config.retryPolicy),
+    });
+
+    let generations: Array<{ arm: Arm; response: GenerationResponse; provider: string }>;
+    if (experiment.comparisonType === "ground_truth") {
+      let reference = null;
+      if (experiment.referenceRunId) {
+        [reference] = await db.select().from(evalReferenceGenerations).where(and(eq(evalReferenceGenerations.referenceRunId, experiment.referenceRunId), eq(evalReferenceGenerations.caseId, datasetCase.id)));
+      }
+      const referenceOutput = datasetCase.goldOutput ?? reference?.parsedOutput;
+      if (!referenceOutput || typeof referenceOutput !== "object" || Array.isArray(referenceOutput)) {
+        throw new Error(`Dataset case ${datasetCase.caseKey} has no immutable ground-truth output.`);
+      }
+      const groundTruthResponse: GenerationResponse = {
+        requestId: `${job.idempotencyKey}:baseline`,
+        track,
+        arm: "baseline",
+        model: reference?.model ?? experiment.baselineModel,
+        promptVersion: reference?.promptVersion ?? datasetCase.promptVersion,
+        output: referenceOutput as Record<string, unknown>,
+        schemaValid: reference?.schemaValid ?? true,
+        schemaErrors: [],
+        calcOutputs: typeof (datasetCase.inputSnapshot as Record<string, unknown>).calcOutputs === "object" ? (datasetCase.inputSnapshot as Record<string, unknown>).calcOutputs as Record<string, unknown> : null,
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        latencyMs: 0,
+        costUsd: null,
+        error: null,
+      };
+      const candidate = await candidateGeneration();
+      generations = [
+        { arm: "baseline", response: groundTruthResponse, provider: "dataset_ground_truth" },
+        { arm: candidate.arm, response: candidate.response, provider: "cosmic_guidance" },
+      ];
+    } else {
+      const arms: Array<{ arm: Arm; model: string; promptVersion: string }> = [
+        { arm: "baseline", model: experiment.baselineModel, promptVersion: experiment.baselinePromptVersion },
+        { arm: "candidate", model: experiment.candidateModel, promptVersion: experiment.candidatePromptVersion },
+      ];
+      generations = await Promise.all(
+        arms.map(async ({ arm, model, promptVersion }) => {
+          const request: GenerationRequest = {
+            track,
+            arm,
+            model,
+            promptVersion,
+            inputSnapshot: datasetCase.inputSnapshot as Record<string, unknown>,
+            requestId: `${job.idempotencyKey}:${arm}`,
+          };
+          const response = await requestGeneration(request, config.retryPolicy);
+          return { arm, response, provider: "cosmic_guidance" };
+        }),
+      );
+    }
 
     await db.update(evalJobs).set({ status: "checking", blindLabelMap, updatedAt: new Date() }).where(eq(evalJobs.id, jobId));
 
-    for (const { arm, response } of generations) {
+    for (const { arm, response, provider } of generations) {
       await db.insert(evalGenerations).values({
         jobId,
         arm,
-        provider: "cosmic_guidance",
+        provider,
         model: response.model,
         promptVersion: response.promptVersion,
         rawOutput: response.output,

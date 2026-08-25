@@ -51,7 +51,6 @@ export function decodeJudgeScore(
     rationale: row.rationale,
     confidenceLevel: row.confidenceLevel,
     latencyMs: row.latencyMs,
-    costUsd: row.costUsd,
   };
 }
 
@@ -114,10 +113,10 @@ export async function buildExperimentReport(db: Db, experimentId: string) {
         model: g.model,
         promptVersion: g.promptVersion,
         schemaValid: g.schemaValid,
+        output: g.parsedOutput,
         tokensPrompt: g.tokensPrompt,
         tokensCompletion: g.tokensCompletion,
         latencyMs: g.latencyMs,
-        costUsd: g.costUsd,
         error: g.error,
       })),
       judge: {
@@ -137,6 +136,8 @@ export async function buildExperimentReport(db: Db, experimentId: string) {
       baselinePromptVersion: experiment.baselinePromptVersion,
       candidatePromptVersion: experiment.candidatePromptVersion,
       status: experiment.status,
+      comparisonType: experiment.comparisonType,
+      referenceRunId: experiment.referenceRunId,
       createdAt: experiment.createdAt,
     },
     dimensions: dimensionsForTrack(track).map((d) => ({ key: d.key, label: d.label, gate: d.gate, description: d.description })),

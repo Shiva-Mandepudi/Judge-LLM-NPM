@@ -86,6 +86,11 @@ export async function registerDataset(
         inputSnapshot: c.inputSnapshot,
         promptVersion: c.promptVersion,
         tags: c.tags,
+        inputChecksum: c.contentHash,
+        schemaVersion: c.schemaVersion,
+        calculatorVersion: c.calculatorVersion,
+        provenance: c.provenance,
+        goldOutput: c.goldOutput,
       })),
     );
 

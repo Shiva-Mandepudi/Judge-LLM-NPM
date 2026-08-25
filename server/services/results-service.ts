@@ -1,6 +1,6 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import type { Db } from "../db.js";
-import { evalJobs, evalJudgeScores, evalGenerations, evalExperiments, evalDeterministicResults, evalDatasetCases, type EvalTrack } from "../../shared/schema.js";
+import { evalJobs, evalJudgeScores, evalExperiments, evalDeterministicResults, evalDatasetCases, type EvalTrack } from "../../shared/schema.js";
 import { getActiveConfig } from "../config/config-service.js";
 import { computeExperimentStats, type JobStatsInput, type ExperimentStats } from "./stats-service.js";
 import { decide, type DecisionResult } from "./decision-service.js";
@@ -80,23 +80,6 @@ function rowToJudgeOutput(row: typeof evalJudgeScores.$inferSelect): JudgeOutput
   };
 }
 
-async function computeCostLatencyComparison(db: Db, experimentId: string) {
-  const rows = await db
-    .select({
-      arm: evalGenerations.arm,
-      avgCost: sql<number>`avg(${evalGenerations.costUsd})`,
-      avgLatency: sql<number>`avg(${evalGenerations.latencyMs})`,
-      totalTokens: sql<number>`sum(${evalGenerations.tokensPrompt} + ${evalGenerations.tokensCompletion})`,
-    })
-    .from(evalGenerations)
-    .innerJoin(evalJobs, eq(evalGenerations.jobId, evalJobs.id))
-    .where(eq(evalJobs.experimentId, experimentId))
-    .groupBy(evalGenerations.arm);
-
-  const byArm = Object.fromEntries(rows.map((r) => [r.arm, { avgCostUsd: r.avgCost, avgLatencyMs: r.avgLatency, totalTokens: r.totalTokens }]));
-  return { costComparison: { baseline: byArm.baseline?.avgCostUsd ?? null, candidate: byArm.candidate?.avgCostUsd ?? null }, latencyComparison: { baseline: byArm.baseline?.avgLatencyMs ?? null, candidate: byArm.candidate?.avgLatencyMs ?? null } };
-}
-
 export async function computeAndPersistResults(db: Db, experimentId: string, actor: string) {
   const [experiment] = await db.select().from(evalExperiments).where(eq(evalExperiments.id, experimentId));
   if (!experiment) throw new Error(`Experiment ${experimentId} not found`);
@@ -119,8 +102,6 @@ export async function computeAndPersistResults(db: Db, experimentId: string, act
   const decision =
     worstPerTag && RECOMMENDATION_SEVERITY[worstPerTag.recommendation] > RECOMMENDATION_SEVERITY[overallDecision.recommendation] ? worstPerTag : overallDecision;
 
-  const { costComparison, latencyComparison } = await computeCostLatencyComparison(db, experimentId);
-
   const [summary] = await db
     .insert(evalResultsSummaries)
     .values({
@@ -137,8 +118,6 @@ export async function computeAndPersistResults(db: Db, experimentId: string, act
       recommendation: decision.recommendation,
       recommendationReasons: decision.reasons,
       perTagResults,
-      costComparison,
-      latencyComparison,
     })
     .returning();
 

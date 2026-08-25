@@ -20,9 +20,9 @@ export interface BuiltJudgePrompt {
 }
 
 // Template follows judge-llm-evaluation-framework.md §10 in structure:
-// unlabeled shared input data, model identity stripped, do-not-reward-length
-// instruction, forced justification-before-score via schema, dimension
-// scores captured per response label so per-arm means are computable.
+// unlabeled shared input data, model identity stripped, and do-not-reward-length
+// instruction. Judges inspect every rubric dimension but return a pairwise
+// decision rather than numeric aspect scores.
 export function buildJudgePrompt(input: JudgePromptInput): BuiltJudgePrompt {
   const dimensions = dimensionsForTrack(input.track);
   const labels = input.responseB !== null ? ["A", "B"] : ["A"];
@@ -30,8 +30,8 @@ export function buildJudgePrompt(input: JudgePromptInput): BuiltJudgePrompt {
   const systemPrompt = [
     "You are an independent quality auditor for a spiritual-guidance content product.",
     "You did not generate any response below and have no stake in which one is preferred.",
-    "Score strictly against the rubric provided, for EACH response label independently. Do not reward length or verbosity.",
-    "Cite specific content from the response in every justification — general impressions are not acceptable.",
+    "Evaluate every rubric dimension strictly, but do not assign numeric scores to individual aspects. Do not reward length or verbosity.",
+    "Cite specific content from the responses in your rationale — general impressions are not acceptable.",
     "You have no information about which model or vendor produced any response; do not guess or mention one.",
   ].join(" ");
 
@@ -43,7 +43,7 @@ export function buildJudgePrompt(input: JudgePromptInput): BuiltJudgePrompt {
     `TRACK: ${input.track}`,
     `RUBRIC VERSION: ${RUBRIC_VERSION}`,
     "",
-    "DIMENSIONS TO SCORE (score every dimension for every response label listed below):",
+    "RUBRIC DIMENSIONS TO ASSESS (inspect every dimension before deciding):",
     dimensionList,
     "",
     "INPUT DATA PROVIDED TO THE GENERATOR (every response label received this identical input):",
@@ -57,11 +57,11 @@ export function buildJudgePrompt(input: JudgePromptInput): BuiltJudgePrompt {
     userPromptParts.push("", "RESPONSE B:", JSON.stringify(input.responseB, null, 2));
     userPromptParts.push(
       "",
-      "After scoring A and B independently on every dimension, give an overall pairwise preference " +
-        "(A better / B better / Tie) with a one-sentence rationale citing specific content from both.",
+      "After assessing every dimension, give an overall pairwise preference " +
+        "(A better / B better / Tie). The service converts this comparison into the final percentage; do not return aspect scores.",
     );
   } else {
-    userPromptParts.push("", "This is a single-arm baseline-regression check: score RESPONSE A against the rubric only, no comparison.");
+    userPromptParts.push("", "This is a single-arm baseline-regression check: assess RESPONSE A against the rubric, report hard-gate results and rationale, and do not return numeric scores.");
   }
 
   return {
