@@ -148,7 +148,7 @@ async function main() {
     .filter(Boolean)
     .map((line) => JSON.parse(line) as JsonRecord);
   const jobsResult = await pool.query(
-    `SELECT j.id AS job_id, j.case_id, c.case_key, c.prompt_version,
+    `SELECT j.id AS job_id, j.case_id, j.idempotency_key, c.case_key, c.prompt_version,
             rg.id AS reference_generation_id, rg.provider_metadata AS reference_metadata
        FROM eval_jobs j
        JOIN eval_dataset_cases c ON c.id = j.case_id
@@ -160,7 +160,7 @@ async function main() {
     [run.experiment_id],
   );
   const jobs = new Map<string, JsonRecord>();
-  for (const job of jobsResult.rows) jobs.set(`${run.dataset_id}:${job.case_key}:batch`, job as JsonRecord);
+  for (const job of jobsResult.rows) jobs.set(`${job.idempotency_key}:batch`, job as JsonRecord);
   if (jobs.size !== run.total_requests) throw new Error("Batch run does not have the expected Judge jobs");
 
   const client = await pool.connect();
@@ -176,8 +176,19 @@ async function main() {
       const customId = String(line.custom_id ?? "");
       const job = jobs.get(customId);
       if (!job) throw new Error(`Unknown Batch custom_id: ${customId}`);
-      const existing = await client.query("SELECT 1 FROM eval_generations WHERE execution_run_id=$1 AND custom_id=$2 LIMIT 1", [run.id, customId]);
-      if (existing.rowCount) continue;
+      const existing = await client.query(
+        "SELECT tokens_prompt,tokens_completion,tokens_total,cost_usd,error FROM eval_generations WHERE execution_run_id=$1 AND custom_id=$2 LIMIT 1",
+        [run.id, customId],
+      );
+      if (existing.rowCount) {
+        const generation = existing.rows[0] as JsonRecord;
+        if (generation.error !== null) failed++;
+        inputTokens += Number(generation.tokens_prompt ?? 0);
+        outputTokens += Number(generation.tokens_completion ?? 0);
+        totalTokens += Number(generation.tokens_total ?? 0);
+        totalCost += Number(generation.cost_usd ?? 0);
+        continue;
+      }
 
       const responseEnvelope = record(line.response);
       const responseBody = record(responseEnvelope.body);

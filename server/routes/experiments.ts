@@ -6,6 +6,7 @@ import { evalExperiments, evalResultsSummaries, evalTracks, evalJobs, evalGenera
 import { createExperiment, enqueueExperimentJobs, retryFailedJobs } from "../services/experiment-service.js";
 import { computeAndPersistResults } from "../services/results-service.js";
 import { buildExperimentReport } from "../services/report-service.js";
+import { getBenchmarkCase, listBenchmarkCases } from "../services/benchmark-output-service.js";
 import { getLimiter } from "../lib/rate-limit.js";
 import { getActiveConfig } from "../config/config-service.js";
 
@@ -101,6 +102,33 @@ experimentsRouter.get("/:id/results", async (req, res) => {
     .where(eq(evalResultsSummaries.experimentId, req.params.id))
     .orderBy(evalResultsSummaries.computedAt);
   res.json({ results: rows });
+});
+
+// Read-only benchmark inspection. The list stays small for fast dashboard
+// filtering; full request/response evidence is fetched for one case at a time.
+experimentsRouter.get("/:id/benchmark-cases", async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) {
+    res.status(400).json({ error: "invalid_experiment_id" });
+    return;
+  }
+  try {
+    res.json(await listBenchmarkCases(req.params.id));
+  } catch (err) {
+    res.status(err instanceof Error && err.message === "Experiment not found" ? 404 : 400).json({ error: err instanceof Error ? err.message : "benchmark_cases_unavailable" });
+  }
+});
+
+experimentsRouter.get("/:id/benchmark-cases/:caseId", async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success || !z.string().uuid().safeParse(req.params.caseId).success) {
+    res.status(400).json({ error: "invalid_id" });
+    return;
+  }
+  try {
+    res.json(await getBenchmarkCase(req.params.id, req.params.caseId));
+  } catch (err) {
+    const status = err instanceof Error && ["Experiment not found", "Benchmark case not found in this experiment"].includes(err.message) ? 404 : 400;
+    res.status(status).json({ error: err instanceof Error ? err.message : "benchmark_case_unavailable" });
+  }
 });
 
 // Per-job generation evidence — the results summary above only has the
