@@ -149,7 +149,10 @@ async function main() {
     .map((line) => JSON.parse(line) as JsonRecord);
   const jobsResult = await pool.query(
     `SELECT j.id AS job_id, j.case_id, j.idempotency_key, c.case_key, c.prompt_version,
-            rg.id AS reference_generation_id, rg.provider_metadata AS reference_metadata
+            rg.id AS reference_generation_id, rg.provider_metadata AS reference_metadata,
+            rg.system_prompt_tokens AS reference_system_prompt_tokens,
+            rg.user_prompt_tokens AS reference_user_prompt_tokens,
+            rg.assistant_context_tokens AS reference_assistant_context_tokens
        FROM eval_jobs j
        JOIN eval_dataset_cases c ON c.id = j.case_id
        JOIN eval_experiments e ON e.id = j.experiment_id
@@ -177,11 +180,36 @@ async function main() {
       const job = jobs.get(customId);
       if (!job) throw new Error(`Unknown Batch custom_id: ${customId}`);
       const existing = await client.query(
-        "SELECT tokens_prompt,tokens_completion,tokens_total,cost_usd,error FROM eval_generations WHERE execution_run_id=$1 AND custom_id=$2 LIMIT 1",
+        `SELECT tokens_prompt,tokens_completion,tokens_total,cost_usd,error,raw_output,
+                system_prompt_tokens,user_prompt_tokens,assistant_context_tokens,
+                tokens_accepted_prediction,tokens_rejected_prediction
+           FROM eval_generations WHERE execution_run_id=$1 AND custom_id=$2 LIMIT 1`,
         [run.id, customId],
       );
       if (existing.rowCount) {
         const generation = existing.rows[0] as JsonRecord;
+        const existingBody = record(record(record(generation.raw_output).response).body);
+        const existingUsage = record(existingBody.usage);
+        await client.query(
+          `UPDATE eval_generations
+              SET system_prompt_tokens=COALESCE(system_prompt_tokens,$1),
+                  user_prompt_tokens=COALESCE(user_prompt_tokens,$2),
+                  assistant_context_tokens=COALESCE(assistant_context_tokens,$3),
+                  tokens_accepted_prediction=COALESCE(tokens_accepted_prediction,$4),
+                  tokens_rejected_prediction=COALESCE(tokens_rejected_prediction,$5),
+                  provider_request_id=COALESCE($6,provider_request_id)
+            WHERE execution_run_id=$7 AND custom_id=$8`,
+          [
+            integer(job.reference_system_prompt_tokens),
+            integer(job.reference_user_prompt_tokens),
+            integer(job.reference_assistant_context_tokens),
+            integer(existingUsage.completion_tokens_details?.accepted_prediction_tokens),
+            integer(existingUsage.completion_tokens_details?.rejected_prediction_tokens),
+            typeof record(record(generation.raw_output).response).request_id === "string" ? record(record(generation.raw_output).response).request_id : null,
+            run.id,
+            customId,
+          ],
+        );
         if (generation.error !== null) failed++;
         inputTokens += Number(generation.tokens_prompt ?? 0);
         outputTokens += Number(generation.tokens_completion ?? 0);
@@ -201,6 +229,8 @@ async function main() {
       const total = integer(responseUsage.total_tokens);
       const cached = integer(responseUsage.prompt_tokens_details?.cached_tokens);
       const reasoning = integer(responseUsage.completion_tokens_details?.reasoning_tokens);
+      const acceptedPrediction = integer(responseUsage.completion_tokens_details?.accepted_prediction_tokens);
+      const rejectedPrediction = integer(responseUsage.completion_tokens_details?.rejected_prediction_tokens);
       const cost = costUsd(promptTokens, completionTokens);
       const referenceMetadata = record(job.reference_metadata);
       const startedAt = timestamps.inProgressAt ?? timestamps.submittedAt;
@@ -220,12 +250,13 @@ async function main() {
           job_id, execution_run_id, arm, execution_mode, provider, model, prompt_version,
           request_id, custom_id, provider_request_id, provider_batch_id, endpoint,
           raw_output, parsed_output, schema_valid, tokens_prompt, tokens_completion,
-          tokens_total, tokens_cached, tokens_reasoning, system_prompt_tokens,
+          tokens_total, tokens_cached, tokens_reasoning, tokens_accepted_prediction,
+          tokens_rejected_prediction, system_prompt_tokens,
           user_prompt_tokens, assistant_context_tokens, latency_ms, cost_usd,
           prompt_hash, response_hash, response_character_count, started_at, completed_at,
           provider_metadata, error
         ) VALUES ($1,$2,'candidate','openai_batch','openai',$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,
-          $12,$13,$14,$15,$16,$17,NULL,NULL,NULL,NULL,$18,$19,$20,$21,$22,$23,$24::jsonb,$25)`,
+          $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30::jsonb,$31)`,
         [
           job.job_id,
           run.id,
@@ -233,7 +264,7 @@ async function main() {
           job.prompt_version,
           customId,
           customId,
-          typeof responseBody.id === "string" ? responseBody.id : null,
+          typeof responseEnvelope.request_id === "string" ? responseEnvelope.request_id : null,
           run.provider_batch_id,
           run.endpoint,
           JSON.stringify(line),
@@ -244,6 +275,11 @@ async function main() {
           total,
           cached,
           reasoning,
+          acceptedPrediction,
+          rejectedPrediction,
+          integer(job.reference_system_prompt_tokens),
+          integer(job.reference_user_prompt_tokens),
+          integer(job.reference_assistant_context_tokens),
           cost,
           referenceMetadata.systemPromptHash ?? null,
           parsed.content === null ? null : sha256(parsed.content),
