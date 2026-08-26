@@ -13,6 +13,7 @@
     "datasets:validate": "tsx scripts/validate-datasets.ts",
     "datasets:generate-synthetic": "tsx scripts/generate-synthetic-datasets.ts",
     "benchmark:cb-actor-001": "tsx scripts/run-cb-actor-001-benchmark.ts",
+    "benchmark:cb-actors-002-005": "tsx scripts/run-cb-actor-001-benchmark.ts --actors cb-actor-002,cb-actor-003,cb-actor-004,cb-actor-005",
     "batch:import": "tsx scripts/import-openai-batch.ts",
     "test:unit": "tsx --test test/unit/*.test.ts",
     "test:integration": "tsx --test test/integration/*.test.ts",

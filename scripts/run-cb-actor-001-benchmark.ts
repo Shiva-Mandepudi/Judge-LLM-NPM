@@ -9,13 +9,16 @@ import { requestGeneration } from "../server/services/generation-client.js";
 const MODEL = "gpt-5.6-sol";
 const PROMPT_VERSION = "cg-production-current";
 const DATASET_TRACK = "brief_readings";
-const DATASET_VERSION = "cb-actor-001-20260824";
-const TRANSIT_DATE = "2026-08-24";
+const requestedActors = process.argv.find((value) => value.startsWith("--actors="))?.slice("--actors=".length)
+  ?? (process.argv.includes("--actors") ? process.argv[process.argv.indexOf("--actors") + 1] : "cb-actor-001");
+const actorIds = requestedActors.split(",").map((value) => value.trim()).filter(Boolean).sort();
+const DATASET_VERSION = actorIds.join("-") === "cb-actor-001" ? "cb-actor-001-20260824" : `${actorIds.join("-")}-20260826`;
+const TRANSIT_DATE = actorIds.join("-") === "cb-actor-001" ? "2026-08-24" : "2026-08-26";
 const BATCH_FILE = path.resolve(process.cwd(), "artifacts/batches", `${DATASET_VERSION}.jsonl`);
 const COST_INPUT_PER_MILLION = 4;
 const COST_OUTPUT_PER_MILLION = 20;
 const RESUME = process.argv.includes("--resume");
-const EXPECTED_CASE_COUNT = 12;
+const EXPECTED_CASE_COUNT = actorIds.length * 12;
 
 type Person = {
   datasetId: string;
@@ -28,7 +31,10 @@ type Person = {
   timezone: string;
   latitude?: number;
   longitude?: number;
+  provenance?: Record<string, unknown>;
 };
+
+type Scenario = { actor: Person; partner: Person };
 
 type CaseDef = {
   caseKey: string;
@@ -42,29 +48,31 @@ type CaseDef = {
 
 type CaseRow = CaseDef & { id: string };
 
-const actor: Person = {
-  datasetId: "cb-actor-001",
-  name: "Nandamuri Taraka Rama Rao Jr.",
-  gender: "Male",
-  date: "1983-05-20",
-  city: "Hyderabad",
-  country: "India",
-  time: "02:29:00",
-  timezone: "Asia/Kolkata",
-  latitude: 17.361667,
-  longitude: 78.474722,
+const scenarios: Record<string, Scenario> = {
+  "cb-actor-001": {
+    actor: { datasetId: "cb-actor-001", name: "Nandamuri Taraka Rama Rao Jr.", gender: "Male", date: "1983-05-20", city: "Hyderabad", country: "India", time: "02:29:00", timezone: "Asia/Kolkata", latitude: 17.361667, longitude: 78.474722, provenance: { source: "AB Dataset.xlsx/100 Actors" } },
+    partner: { datasetId: "supplied-partner-nandamuri-lakshmi-pranathi", name: "Nandamuri Lakshmi Pranathi", gender: "Female", date: "1992-03-26", city: "Hyderabad", country: "India", time: "12:00:00", timezone: "Asia/Kolkata", provenance: { source: "user-supplied" } },
+  },
+  "cb-actor-002": {
+    actor: { datasetId: "cb-actor-002", name: "Akkineni Nagarjuna", gender: "Male", date: "1959-08-29", city: "Chennai", country: "India", time: "00:22:00", timezone: "Asia/Kolkata", latitude: 13.0825, longitude: 80.275, provenance: { source: "AB Dataset.xlsx/100 Actors" } },
+    partner: { datasetId: "web-partner-amala-akkineni", name: "Amala Akkineni", gender: "Female", date: "1967-09-12", city: "Kalaikunda", country: "India", time: "14:00:00", timezone: "Asia/Kolkata", provenance: { birthDateAndPlace: "public-web", birthTime: "public-web-unverified" } },
+  },
+  "cb-actor-003": {
+    actor: { datasetId: "cb-actor-003", name: "Daggubati Venkatesh", gender: "Male", date: "1960-12-13", city: "Karamchedu", country: "India", time: "00:38:00", timezone: "Asia/Kolkata", latitude: 15.8823, longitude: 80.317, provenance: { source: "AB Dataset.xlsx/100 Actors" } },
+    partner: { datasetId: "web-partner-neeraja-daggubati", name: "Neeraja Daggubati", gender: "Female", date: "1965-06-15", city: "Hyderabad", country: "India", time: "06:42:00", timezone: "Asia/Kolkata", provenance: { spouseIdentity: "public-web", birthDateAndPlace: "benchmark-assumed-no-public-record", birthTime: "benchmark-assumed-distinct" } },
+  },
+  "cb-actor-004": {
+    actor: { datasetId: "cb-actor-004", name: "Ravi Shankar Raju Bhupatiraju", gender: "Male", date: "1968-01-26", city: "Jaggampeta", country: "India", time: "00:54:00", timezone: "Asia/Kolkata", latitude: 17.17054, longitude: 82.0595, provenance: { source: "AB Dataset.xlsx/100 Actors" } },
+    partner: { datasetId: "web-partner-kalyani-teja", name: "Kalyani Teja", gender: "Female", date: "1980-04-20", city: "Vijayawada", country: "India", time: "09:17:00", timezone: "Asia/Kolkata", provenance: { birthDateAndPlace: "public-web", birthTime: "benchmark-assumed-distinct" } },
+  },
+  "cb-actor-005": {
+    actor: { datasetId: "cb-actor-005", name: "Konidela Kalyan Babu", gender: "Male", date: "1971-09-02", city: "Gajuwaka", country: "India", time: "01:10:00", timezone: "Asia/Kolkata", latitude: 17.7, longitude: 83.2167, provenance: { source: "AB Dataset.xlsx/100 Actors" } },
+    partner: { datasetId: "web-partner-anna-lezhneva", name: "Anna Lezhneva", gender: "Female", date: "1980-08-03", city: "Moscow", country: "Russia", time: "16:28:00", timezone: "Europe/Moscow", provenance: { birthDate: "public-web", birthPlace: "benchmark-assumed-city-within-public-country", birthTime: "benchmark-assumed-distinct" } },
+  },
 };
 
-const partner: Person = {
-  datasetId: "supplied-partner-nandamuri-lakshmi-pranathi",
-  name: "Nandamuri Lakshmi Pranathi",
-  gender: "Female",
-  date: "1992-03-26",
-  city: "Hyderabad",
-  country: "India",
-  time: "12:00:00",
-  timezone: "Asia/Kolkata",
-};
+if (!actorIds.length || actorIds.some((id) => !scenarios[id])) throw new Error(`Unsupported benchmark actor selection: ${requestedActors}`);
+const selectedScenarios = actorIds.map((id) => scenarios[id]);
 
 function sha256(value: unknown): string {
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -107,41 +115,25 @@ async function numerologyProfile(person: Person) {
 }
 
 async function prepareCases(): Promise<CaseDef[]> {
-  const natal = await calcSnapshot({ chartType: "natal", name: actor.name, date: actor.date, time: actor.time, location: { city: actor.city, nation: actor.country } });
-  const transit = await calcSnapshot({ chartType: "transit", name: actor.name, date: actor.date, time: actor.time, location: { city: actor.city, nation: actor.country }, transitDate: TRANSIT_DATE, transitTime: "12:00" });
-  const synastry = await calcSnapshot({ chartType: "synastry", name: actor.name, date: actor.date, time: actor.time, location: { city: actor.city, nation: actor.country }, partnerName: partner.name, partnerDate: partner.date, partnerTime: partner.time, partnerLocation: { city: partner.city, nation: partner.country } });
-  const composite = await calcSnapshot({ chartType: "composite", name: actor.name, date: actor.date, time: actor.time, location: { city: actor.city, nation: actor.country }, partnerName: partner.name, partnerDate: partner.date, partnerTime: partner.time, partnerLocation: { city: partner.city, nation: partner.country } });
-  const actorNumbers = await numerologyProfile(actor);
-  const partnerNumbers = await numerologyProfile(partner);
-  const tarot = {
-    spreadType: "three-card",
-    question: "What do I need to understand about the past, present, and future of my current life journey?",
-    cards: [
-      { name: "The Hermit", isReversed: false, position: "Past" },
-      { name: "The Chariot", isReversed: false, position: "Present" },
-      { name: "The World", isReversed: false, position: "Future" },
-    ],
-  };
   const cases: CaseDef[] = [];
-  const add = (track: string, readingType: string, inputSnapshot: Record<string, unknown>, tags: string[]) => {
-    for (const insightType of ["detailed", "brief"] as const) {
-      cases.push({
-        caseKey: `cb-actor-001:${readingType}:${insightType}`,
-        track,
-        readingType,
-        readingSubtype: insightType,
-        subjectKey: actor.datasetId,
-        inputSnapshot: { ...inputSnapshot, insightType },
-        tags: [...tags, insightType],
-      });
-    }
-  };
-  add("natal", "natal", natal, ["natal"]);
-  add("transit", "transit", { ...transit, transitDate: TRANSIT_DATE }, ["transit"]);
-  add("tarot", "tarot", tarot, ["tarot", "traditional_three_card"]);
-  add("synastry", "synastry", { ...synastry, readingType: "synastry", person1Name: actor.name, person2Name: partner.name }, ["synastry", "compatibility"]);
-  add("composite", "composite", { ...composite, readingType: "composite", person1Name: actor.name, person2Name: partner.name }, ["composite", "compatibility"]);
-  add("number_compatibility", "number_compatibility", { person1: actorNumbers, person2: partnerNumbers }, ["number_compatibility", "compatibility"]);
+  for (const { actor, partner } of selectedScenarios) {
+    const natal = await calcSnapshot({ chartType: "natal", name: actor.name, date: actor.date, time: actor.time, location: { city: actor.city, nation: actor.country } });
+    const transit = await calcSnapshot({ chartType: "transit", name: actor.name, date: actor.date, time: actor.time, location: { city: actor.city, nation: actor.country }, transitDate: TRANSIT_DATE, transitTime: "12:00" });
+    const synastry = await calcSnapshot({ chartType: "synastry", name: actor.name, date: actor.date, time: actor.time, location: { city: actor.city, nation: actor.country }, partnerName: partner.name, partnerDate: partner.date, partnerTime: partner.time, partnerLocation: { city: partner.city, nation: partner.country } });
+    const composite = await calcSnapshot({ chartType: "composite", name: actor.name, date: actor.date, time: actor.time, location: { city: actor.city, nation: actor.country }, partnerName: partner.name, partnerDate: partner.date, partnerTime: partner.time, partnerLocation: { city: partner.city, nation: partner.country } });
+    const actorNumbers = await numerologyProfile(actor);
+    const partnerNumbers = await numerologyProfile(partner);
+    const tarot = { spreadType: "three-card", question: "What do I need to understand about the past, present, and future of my current life journey?", cards: [{ name: "The Hermit", isReversed: false, position: "Past" }, { name: "The Chariot", isReversed: false, position: "Present" }, { name: "The World", isReversed: false, position: "Future" }] };
+    const add = (track: string, readingType: string, inputSnapshot: Record<string, unknown>, tags: string[]) => {
+      for (const insightType of ["detailed", "brief"] as const) cases.push({ caseKey: `${actor.datasetId}:${readingType}:${insightType}`, track, readingType, readingSubtype: insightType, subjectKey: actor.datasetId, inputSnapshot: { ...inputSnapshot, insightType }, tags: [...tags, insightType] });
+    };
+    add("natal", "natal", natal, ["natal"]);
+    add("transit", "transit", { ...transit, transitDate: TRANSIT_DATE }, ["transit"]);
+    add("tarot", "tarot", tarot, ["tarot", "traditional_three_card"]);
+    add("synastry", "synastry", { ...synastry, readingType: "synastry", person1Name: actor.name, person2Name: partner.name }, ["synastry", "compatibility"]);
+    add("composite", "composite", { ...composite, readingType: "composite", person1Name: actor.name, person2Name: partner.name }, ["composite", "compatibility"]);
+    add("number_compatibility", "number_compatibility", { person1: actorNumbers, person2: partnerNumbers }, ["number_compatibility", "compatibility"]);
+  }
   return cases;
 }
 
@@ -190,11 +182,11 @@ async function insertBenchmark(cases?: CaseDef[]) {
     const sourceChecksum = sha256(cases);
     const dataset = await client.query(
       "INSERT INTO eval_datasets (track, version, description, source_checksum, case_count, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
-      [DATASET_TRACK, DATASET_VERSION, "cb-actor-001 Standard vs OpenAI Batch benchmark", sourceChecksum, cases.length, "cb-actor-001-benchmark"],
+      [DATASET_TRACK, DATASET_VERSION, `${actorIds.join(", ")} CG Standard vs OpenAI Batch benchmark`, sourceChecksum, cases.length, `${DATASET_VERSION}-benchmark`],
     );
     const datasetId = dataset.rows[0].id as string;
     const subjectIds = new Map<string, string>();
-    for (const subject of [actor, partner]) {
+    for (const subject of selectedScenarios.flatMap(({ actor, partner }) => [actor, partner])) {
       const result = await client.query(
         "INSERT INTO eval_dataset_subjects (dataset_id, subject_key, source_reference_hash, subject_snapshot, subject_checksum, metadata) VALUES ($1,$2,$3,$4::jsonb,$5,$6::jsonb) RETURNING id",
         [datasetId, subject.datasetId, sha256(subject.datasetId), JSON.stringify(subject), sha256(subject), JSON.stringify({ sourceFile: "AB Dataset.xlsx", sourceSheet: "100 Actors" })],
@@ -211,14 +203,14 @@ async function insertBenchmark(cases?: CaseDef[]) {
     }
     const reference = await client.query(
       "INSERT INTO eval_reference_runs (dataset_id,name,provider,model,execution_mode,endpoint,prompt_version,schema_version,calculator_version,dataset_checksum,generation_config,status,case_count,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14) RETURNING id",
-      [datasetId, "CG Standard gpt-5.6-sol reference", "cosmic_guidance", MODEL, "cg_standard", "/api/internal/judge/generate", PROMPT_VERSION, "cg-production-json", "cg-astroverse-current", sourceChecksum, JSON.stringify({ model: MODEL, temperature: 0.7, source: "CG production prompt path" }), "generating", rows.length, "cb-actor-001-benchmark"],
+      [datasetId, "CG Standard gpt-5.6-sol reference", "cosmic_guidance", MODEL, "cg_standard", "/api/internal/judge/generate", PROMPT_VERSION, "cg-production-json", "cg-astroverse-current", sourceChecksum, JSON.stringify({ model: MODEL, temperature: 0.7, source: "CG production prompt path" }), "generating", rows.length, `${DATASET_VERSION}-benchmark`],
     );
     const referenceRunId = reference.rows[0].id as string;
     const config = await client.query("SELECT id FROM eval_config_versions WHERE config_key = 'global' ORDER BY version DESC LIMIT 1");
     if (!config.rowCount) throw new Error("No Judge global config exists");
     const experiment = await client.query(
       "INSERT INTO eval_experiments (name,track,dataset_id,baseline_model,candidate_model,baseline_prompt_version,candidate_prompt_version,config_version_id,reference_run_id,comparison_type,baseline_execution_mode,candidate_execution_mode,created_by,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id",
-      ["cb-actor-001 CG Standard vs OpenAI Batch", DATASET_TRACK, datasetId, MODEL, MODEL, PROMPT_VERSION, PROMPT_VERSION, config.rows[0].id, referenceRunId, "execution_mode", "cg_standard", "openai_batch", "cb-actor-001-benchmark", "running"],
+      [`${actorIds.join(", ")} CG Standard vs OpenAI Batch`, DATASET_TRACK, datasetId, MODEL, MODEL, PROMPT_VERSION, PROMPT_VERSION, config.rows[0].id, referenceRunId, "execution_mode", "cg_standard", "openai_batch", `${DATASET_VERSION}-benchmark`, "running"],
     );
     const experimentId = experiment.rows[0].id as string;
     for (const row of rows) await client.query("INSERT INTO eval_jobs (experiment_id,case_id,idempotency_key,status) VALUES ($1,$2,$3,'pending')", [experimentId, row.id, `${DATASET_VERSION}:${row.caseKey}`]);
