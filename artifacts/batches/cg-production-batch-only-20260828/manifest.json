@@ -1,0 +1,132 @@
+{
+  "datasetId": "30b87fb3-33df-4495-98cf-ee4b4d48abb4",
+  "experimentId": "a37e7abf-f4b4-4f4c-b238-f62e5660d5d9",
+  "datasetVersion": "cg-production-batch-only-20260828",
+  "model": "gpt-5.6-sol",
+  "transitDate": "2026-08-28",
+  "tarot": {
+    "question": "What do I need to understand about the past, present, and future of my current life journey?",
+    "spreadType": "three-card",
+    "cards": [
+      {
+        "name": "The Hermit",
+        "isReversed": false,
+        "position": "Past"
+      },
+      {
+        "name": "The Chariot",
+        "isReversed": false,
+        "position": "Present"
+      },
+      {
+        "name": "The World",
+        "isReversed": false,
+        "position": "Future"
+      }
+    ]
+  },
+  "aiRequests": 2526,
+  "calculationOnlyArtifacts": 300,
+  "partitions": [
+    {
+      "partition": 1,
+      "runId": "92c28246-7504-4c89-a2da-b54abce7d5a9",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-01.jsonl",
+      "requestCount": 186,
+      "byteCount": 17369238,
+      "sha256": "99920f12871368fb9d8104251dadd86f3eaf81a87f47ad22896188a9a1aebc71",
+      "firstCaseKey": "cb-actor-002:numerology_birthday_number:brief",
+      "lastCaseKey": "cb-actor-010:zodiac_profile:full"
+    },
+    {
+      "partition": 2,
+      "runId": "de4d894c-c10c-43d7-a217-141d22613299",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-02.jsonl",
+      "requestCount": 260,
+      "byteCount": 27843202,
+      "sha256": "e52bafb0d319b8baa6c0c0af6291556146211be3ad0d5caef923cc1e8177d2c3",
+      "firstCaseKey": "cb-actor-011:composite:brief",
+      "lastCaseKey": "cb-actor-020:zodiac_profile:full"
+    },
+    {
+      "partition": 3,
+      "runId": "56ff1c93-56e5-4446-9dc5-264623ef776e",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-03.jsonl",
+      "requestCount": 260,
+      "byteCount": 27815630,
+      "sha256": "3b790fe1b2314d660492a1bea7fba0f97b46ebf791fd5792e2e0c271079f46fa",
+      "firstCaseKey": "cb-actor-021:composite:brief",
+      "lastCaseKey": "cb-actor-030:zodiac_profile:full"
+    },
+    {
+      "partition": 4,
+      "runId": "91b9fa8d-321c-4c10-8428-fa01c14a2289",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-04.jsonl",
+      "requestCount": 260,
+      "byteCount": 27690358,
+      "sha256": "63cf5b85acf433af4c07123cbb9cb8bac62029fc548580528ba2655506f2cc0e",
+      "firstCaseKey": "cb-actor-031:composite:brief",
+      "lastCaseKey": "cb-actor-040:zodiac_profile:full"
+    },
+    {
+      "partition": 5,
+      "runId": "b84f4d0b-b131-4bfe-967a-c3cfec9acf22",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-05.jsonl",
+      "requestCount": 260,
+      "byteCount": 27702605,
+      "sha256": "a9f4d1f25b443da3b90b3b40001f36f0e3c08655b0aba50c5567e6d32052cf31",
+      "firstCaseKey": "cb-actor-041:composite:brief",
+      "lastCaseKey": "cb-actor-050:zodiac_profile:full"
+    },
+    {
+      "partition": 6,
+      "runId": "f19348a7-0199-487f-b8ce-50489bd54ce3",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-06.jsonl",
+      "requestCount": 260,
+      "byteCount": 27562066,
+      "sha256": "4553ce47ba7cdd23de7c5627fe114658b7a912802b8022fdd1b88144882ca911",
+      "firstCaseKey": "cb-actor-051:composite:brief",
+      "lastCaseKey": "cb-actor-060:zodiac_profile:full"
+    },
+    {
+      "partition": 7,
+      "runId": "75a03f5e-9b8a-4fa9-9cef-a7efd91779de",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-07.jsonl",
+      "requestCount": 260,
+      "byteCount": 27749737,
+      "sha256": "b343e5f026cf0d709ab164e324ac0640dbf5e009779d31e3d615283027feb6f9",
+      "firstCaseKey": "cb-actor-061:composite:brief",
+      "lastCaseKey": "cb-actor-070:zodiac_profile:full"
+    },
+    {
+      "partition": 8,
+      "runId": "20dffbe4-3ea1-4ed0-b707-d8cd5d01ffca",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-08.jsonl",
+      "requestCount": 260,
+      "byteCount": 27723058,
+      "sha256": "6752b0ea63d17be2e9dd6bd1965c4bd90dbea5162d134a3554387384523c2972",
+      "firstCaseKey": "cb-actor-071:composite:brief",
+      "lastCaseKey": "cb-actor-080:zodiac_profile:full"
+    },
+    {
+      "partition": 9,
+      "runId": "42a30726-ff57-4ede-935b-24cccdfff1f7",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-09.jsonl",
+      "requestCount": 260,
+      "byteCount": 27766514,
+      "sha256": "971147c0ee94d4080eb202c1f5cbdcdb600b1263f9ee76a23305865eb6255959",
+      "firstCaseKey": "cb-actor-081:composite:brief",
+      "lastCaseKey": "cb-actor-090:zodiac_profile:full"
+    },
+    {
+      "partition": 10,
+      "runId": "31124866-329e-4a9b-a6f4-eaf037320c48",
+      "filePath": "C:\\Users\\shiva\\Desktop\\Astroverse\\judge-service\\artifacts\\batches\\cg-production-batch-only-20260828\\cg-production-batch-only-20260828.part-10.jsonl",
+      "requestCount": 260,
+      "byteCount": 27809889,
+      "sha256": "c0fc9a80bd040d13342de231bd063d2eda2148672e92a5148621f2a5935ce0d2",
+      "firstCaseKey": "cb-actor-091:composite:brief",
+      "lastCaseKey": "cb-actor-100:zodiac_profile:full"
+    }
+  ]
+}

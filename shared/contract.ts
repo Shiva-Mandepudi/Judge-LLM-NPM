@@ -27,6 +27,28 @@ import { z } from "zod";
 export const evalArmSchema = z.enum(["baseline", "candidate"]);
 export type EvalArm = z.infer<typeof evalArmSchema>;
 
+export const ALLOWED_PREPARATION_TRACKS = ["numerology", "natal", "transit", "synastry", "composite", "number_compatibility", "tarot", "zodiac_profile", "universal_insights"] as const;
+export const judgePreparationRequestSchema = z.object({
+  track: z.enum(ALLOWED_PREPARATION_TRACKS),
+  model: z.string().min(1).max(200),
+  promptVersion: z.string().min(1).max(200),
+  inputSnapshot: z.record(z.unknown()),
+  requestId: z.string().min(1).max(200),
+});
+export type JudgePreparationRequest = z.infer<typeof judgePreparationRequestSchema>;
+
+export const judgePreparedRequestResponseSchema = z.object({
+  endpoint: z.literal("/v1/chat/completions"),
+  requestBody: z.record(z.unknown()),
+  systemPromptTokens: z.number().int().nonnegative(),
+  userPromptTokens: z.number().int().nonnegative(),
+  assistantContextTokens: z.number().int().nonnegative(),
+  promptCharacterCount: z.number().int().nonnegative(),
+  promptVersion: z.string().nullable(),
+  systemPromptHash: z.string().nullable(),
+  userPromptHash: z.string().nullable(),
+});
+
 export const generationRequestSchema = z.object({
   track: z.string(),
   arm: evalArmSchema,

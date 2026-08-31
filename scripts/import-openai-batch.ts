@@ -141,29 +141,30 @@ async function main() {
     console.log(JSON.stringify({ runId: run.id, batchId: run.provider_batch_id, status, requestCounts: counts }, null, 2));
     return;
   }
-  if (typeof batch.output_file_id !== "string") throw new Error("Completed Batch has no output_file_id");
-
-  const lines = (await openAiText(`/files/${encodeURIComponent(batch.output_file_id)}/content`))
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as JsonRecord);
+  const readBatchLines = async (fileId: unknown): Promise<JsonRecord[]> => {
+    if (typeof fileId !== "string") return [];
+    return (await openAiText(`/files/${encodeURIComponent(fileId)}/content`))
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as JsonRecord);
+  };
+  const lines = [...await readBatchLines(batch.output_file_id), ...await readBatchLines(batch.error_file_id)];
+  if (!lines.length) throw new Error("Completed Batch has no output or error result lines");
   const jobsResult = await pool.query(
     `SELECT j.id AS job_id, j.case_id, j.idempotency_key, c.case_key, c.prompt_version,
-            rg.id AS reference_generation_id, rg.provider_metadata AS reference_metadata,
-            rg.system_prompt_tokens AS reference_system_prompt_tokens,
-            rg.user_prompt_tokens AS reference_user_prompt_tokens,
-            rg.assistant_context_tokens AS reference_assistant_context_tokens
+            p.custom_id, p.request_body, p.system_prompt_tokens,
+            p.user_prompt_tokens, p.assistant_context_tokens,
+            p.system_prompt_hash, p.user_prompt_hash
        FROM eval_jobs j
        JOIN eval_dataset_cases c ON c.id = j.case_id
-       JOIN eval_experiments e ON e.id = j.experiment_id
-       LEFT JOIN eval_reference_generations rg
-         ON rg.reference_run_id = e.reference_run_id AND rg.case_id = c.id
-      WHERE j.experiment_id = $1
+       JOIN eval_prepared_requests p
+         ON p.execution_run_id = $1 AND p.case_id = c.id
+      WHERE j.experiment_id = $2
       ORDER BY c.case_key`,
-    [run.experiment_id],
+    [run.id, run.experiment_id],
   );
   const jobs = new Map<string, JsonRecord>();
-  for (const job of jobsResult.rows) jobs.set(`${job.idempotency_key}:batch`, job as JsonRecord);
+  for (const job of jobsResult.rows) jobs.set(String(job.custom_id), job as JsonRecord);
   if (jobs.size !== run.total_requests) throw new Error("Batch run does not have the expected Judge jobs");
 
   const client = await pool.connect();
@@ -200,9 +201,9 @@ async function main() {
                   provider_request_id=COALESCE($6,provider_request_id)
             WHERE execution_run_id=$7 AND custom_id=$8`,
           [
-            integer(job.reference_system_prompt_tokens),
-            integer(job.reference_user_prompt_tokens),
-            integer(job.reference_assistant_context_tokens),
+            integer(job.system_prompt_tokens),
+            integer(job.user_prompt_tokens),
+            integer(job.assistant_context_tokens),
             integer(existingUsage.completion_tokens_details?.accepted_prediction_tokens),
             integer(existingUsage.completion_tokens_details?.rejected_prediction_tokens),
             typeof record(record(generation.raw_output).response).request_id === "string" ? record(record(generation.raw_output).response).request_id : null,
@@ -232,13 +233,11 @@ async function main() {
       const acceptedPrediction = integer(responseUsage.completion_tokens_details?.accepted_prediction_tokens);
       const rejectedPrediction = integer(responseUsage.completion_tokens_details?.rejected_prediction_tokens);
       const cost = costUsd(promptTokens, completionTokens);
-      const referenceMetadata = record(job.reference_metadata);
       const startedAt = timestamps.inProgressAt ?? timestamps.submittedAt;
       const completedAt = timestamps.completedAt ?? timestamps.failedAt;
       const providerMetadata = {
         batchResultLine: line,
-        requestBody: referenceMetadata.requestBody ?? null,
-        referenceGenerationId: job.reference_generation_id ?? null,
+        requestBody: job.request_body,
         latencyMs: null,
         latencyUnavailableReason: "OpenAI Batch exposes batch lifecycle timestamps, not per-request latency.",
         batchSubmittedAt: timestamps.submittedAt?.toISOString() ?? null,
@@ -277,11 +276,11 @@ async function main() {
           reasoning,
           acceptedPrediction,
           rejectedPrediction,
-          integer(job.reference_system_prompt_tokens),
-          integer(job.reference_user_prompt_tokens),
-          integer(job.reference_assistant_context_tokens),
+          integer(job.system_prompt_tokens),
+          integer(job.user_prompt_tokens),
+          integer(job.assistant_context_tokens),
           cost,
-          referenceMetadata.systemPromptHash ?? null,
+          job.system_prompt_hash ?? job.user_prompt_hash ?? null,
           parsed.content === null ? null : sha256(parsed.content),
           parsed.content?.length ?? null,
           startedAt,

@@ -167,6 +167,30 @@ export const evalGenerationRuns = pgTable("eval_generation_runs", {
   providerBatchUnique: unique().on(t.provider, t.providerBatchId),
 }));
 
+export const evalPreparedRequests = pgTable("eval_prepared_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  executionRunId: uuid("execution_run_id").notNull().references(() => evalGenerationRuns.id),
+  caseId: uuid("case_id").notNull().references(() => evalDatasetCases.id),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  endpoint: text("endpoint").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  customId: text("custom_id").notNull(),
+  requestBody: jsonb("request_body").notNull(),
+  requestBodyChecksum: text("request_body_checksum").notNull(),
+  systemPromptTokens: integer("system_prompt_tokens").notNull(),
+  userPromptTokens: integer("user_prompt_tokens").notNull(),
+  assistantContextTokens: integer("assistant_context_tokens").notNull(),
+  promptCharacterCount: integer("prompt_character_count").notNull(),
+  systemPromptHash: text("system_prompt_hash"),
+  userPromptHash: text("user_prompt_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  runCaseUnique: unique().on(t.executionRunId, t.caseId),
+  customIdUnique: unique().on(t.customId),
+  runIdx: index("eval_prepared_requests_run_idx").on(t.executionRunId, t.createdAt),
+}));
+
 // One immutable reference output per dataset case. Candidate experiments
 // reuse these rows instead of regenerating the baseline.
 export const evalReferenceGenerations = pgTable("eval_reference_generations", {
@@ -263,6 +287,19 @@ export const evalDeterministicResults = pgTable("eval_deterministic_results", {
   detail: text("detail"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const evalDeterministicArtifacts = pgTable("eval_deterministic_artifacts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  caseId: uuid("case_id").notNull().references(() => evalDatasetCases.id),
+  artifactType: text("artifact_type").notNull(),
+  outputSnapshot: jsonb("output_snapshot").notNull(),
+  outputChecksum: text("output_checksum").notNull(),
+  provenance: jsonb("provenance").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  caseArtifactUnique: unique().on(t.caseId, t.artifactType),
+  caseIdx: index("eval_deterministic_artifacts_case_idx").on(t.caseId),
+}));
 
 export const evalJudgeScores = pgTable("eval_judge_scores", {
   id: uuid("id").primaryKey().defaultRandom(),
