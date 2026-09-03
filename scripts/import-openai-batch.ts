@@ -279,6 +279,7 @@ async function main() {
           integer(job.system_prompt_tokens),
           integer(job.user_prompt_tokens),
           integer(job.assistant_context_tokens),
+          null,
           cost,
           job.system_prompt_hash ?? job.user_prompt_hash ?? null,
           parsed.content === null ? null : sha256(parsed.content),

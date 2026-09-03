@@ -16,6 +16,7 @@
     "benchmark:cb-actors-002-005": "tsx scripts/run-cb-actor-001-benchmark.ts --actors cb-actor-002,cb-actor-003,cb-actor-004,cb-actor-005",
     "benchmark:cb001-missing-standard": "tsx scripts/run-cb001-missing-standard.ts",
     "batch:prepare-cg-corpus": "tsx scripts/prepare-cg-batch-corpus.ts",
+    "batch:prepare-retry": "tsx scripts/prepare-failed-batch-retry.ts",
     "batch:submit": "tsx scripts/submit-prepared-openai-batch.ts",
     "batch:reset-zero-failures": "tsx scripts/reset-zero-request-batch-failures.ts",
     "batch:import": "tsx scripts/import-openai-batch.ts",
