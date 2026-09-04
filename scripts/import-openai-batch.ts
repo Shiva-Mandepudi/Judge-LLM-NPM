@@ -152,7 +152,7 @@ async function main() {
   if (!lines.length) throw new Error("Completed Batch has no output or error result lines");
   const jobsResult = await pool.query(
     `SELECT j.id AS job_id, j.case_id, j.idempotency_key, c.case_key, c.prompt_version,
-            p.custom_id, p.request_body, p.system_prompt_tokens,
+            p.custom_id, p.system_prompt_tokens,
             p.user_prompt_tokens, p.assistant_context_tokens,
             p.system_prompt_hash, p.user_prompt_hash
        FROM eval_jobs j
@@ -237,7 +237,7 @@ async function main() {
       const completedAt = timestamps.completedAt ?? timestamps.failedAt;
       const providerMetadata = {
         batchResultLine: line,
-        requestBody: job.request_body,
+        // ponytail: omit the large prepared prompt body from this transfer; it remains in eval_prepared_requests.
         latencyMs: null,
         latencyUnavailableReason: "OpenAI Batch exposes batch lifecycle timestamps, not per-request latency.",
         batchSubmittedAt: timestamps.submittedAt?.toISOString() ?? null,
