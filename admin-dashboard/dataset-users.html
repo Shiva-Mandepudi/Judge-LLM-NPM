@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Judge LLM · Dataset Users</title>
+<style>
+  :root { color-scheme: dark; --bg:#090d16; --panel:#111827; --line:#263247; --muted:#95a3b8; --text:#eef2ff; --accent:#8b7cff; --good:#42d392; --warn:#f4c95d; --bad:#ff7676; }
+  * { box-sizing:border-box; } body { margin:0; font:14px/1.5 system-ui,sans-serif; color:var(--text); background:radial-gradient(circle at 80% 0,#1b1742 0,transparent 34rem),var(--bg); }
+  main { max-width:1320px; margin:auto; padding:28px 22px 80px; } h1,h2,h3 { margin:0 0 10px; color:#fff; } h1 { font-size:31px; } h2 { font-size:21px; } h3 { font-size:16px; }
+  p { color:var(--muted); } a { color:#b8b0ff; } section,.panel { margin:22px 0; padding:20px; border:1px solid var(--line); border-radius:14px; background:rgba(17,24,39,.86); box-shadow:0 12px 40px rgba(0,0,0,.12); }
+  .topbar { display:flex; justify-content:space-between; gap:18px; align-items:end; } .nav { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0 24px; } .nav a { text-decoration:none; padding:7px 11px; border:1px solid var(--line); border-radius:999px; color:var(--muted); } .nav a:hover { color:#fff; border-color:var(--accent); }
+  label { display:block; color:var(--muted); margin:9px 0 5px; } input,select,button { min-height:36px; border:1px solid var(--line); border-radius:8px; background:#0c1320; color:var(--text); padding:7px 10px; } input,select { width:100%; } button { cursor:pointer; background:#251f56; border-color:#6357d3; } button:hover { background:#332b78; } button.secondary { background:#172235; border-color:var(--line); }
+  .auth { display:grid; grid-template-columns:minmax(220px,2fr) minmax(150px,1fr) auto; gap:10px; align-items:end; } .form-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; } .form-actions { display:flex; gap:10px; align-items:center; margin-top:14px; } .status { color:var(--muted); } .error { color:var(--bad); } .hint { color:var(--muted); font-size:13px; }
+  table { width:100%; border-collapse:collapse; margin-top:14px; } th,td { padding:11px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; } th { color:var(--muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; } tbody tr:hover { background:#151e30; }
+  .scroll { overflow:auto; } .muted { color:var(--muted); } .good { color:var(--good); } .warn { color:var(--warn); } .bad { color:var(--bad); } .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#202b42; color:#ccd5e6; font-size:12px; }
+  details { border-top:1px solid var(--line); padding:13px 0; } summary { cursor:pointer; color:#d9ddf0; } pre { max-height:360px; overflow:auto; padding:12px; border-radius:8px; background:#080c14; color:#cbd5e1; white-space:pre-wrap; overflow-wrap:anywhere; } .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:800px) { .topbar,.auth,.form-grid,.two-col { grid-template-columns:1fr; display:grid; } .topbar { align-items:start; } }
+  .user-card { margin:12px 0; border:1px solid var(--line); border-radius:12px; background:#0d1524; } .user-card > summary { list-style:none; display:flex; flex-wrap:wrap; align-items:center; gap:14px; padding:14px 16px; } .user-card > summary::-webkit-details-marker { display:none; } .user-card > summary:hover { background:#141d31; border-radius:12px; } .user-card > summary .key { font-weight:600; color:#fff; min-width:130px; } .user-card > summary .grow { flex:1; } .user-body { padding:4px 16px 16px; }
+  .case-row { border-top:1px solid var(--line); padding:8px 0; } .case-row > summary { padding:6px 0; } .group-title { margin:16px 0 4px; color:var(--accent); font-size:13px; text-transform:uppercase; letter-spacing:.06em; }
+  .pager { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:16px; } .pager button { min-height:32px; padding:4px 11px; background:#172235; border-color:var(--line); } .pager button.current { background:#332b78; border-color:var(--accent); color:#fff; } .pager button:disabled { opacity:.4; cursor:default; }
+  .toolbar { display:grid; grid-template-columns:minmax(220px,2fr) minmax(180px,1fr) minmax(110px,.6fr); gap:12px; align-items:end; }
+  @media (max-width:800px) { .toolbar { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="topbar"><div><p class="pill">PRIVATE EVALUATION SERVICE</p><h1>Dataset Users</h1><p>Browse every subject in a ground-truth dataset — profile, partner details, reading cases, gold outputs, frozen CG Standard references, and calculation artifacts. Read-only; no model request is made from this screen.</p></div><a href="/" onclick="sessionStorage.removeItem('judgeAdminSecret'); sessionStorage.removeItem('judgeAdminActor');">Sign out</a></div>
+  <nav class="nav"><a href="/admin/dashboard/index.html">Dashboard</a><a href="#browser">User browser</a></nav>
+
+  <section id="browser"><h2>User browser</h2>
+    <div class="toolbar">
+      <div><label for="search">Search subject key or name</label><input id="search" placeholder="e.g. cb-actor-007 or a name" oninput="searchChanged()" /></div>
+      <div><label for="type-filter">Reading type filter</label><select id="type-filter" onchange="rerenderExpanded()"><option value="">All reading types</option></select></div>
+      <div><label for="page-size">Per page</label><select id="page-size" onchange="pageSizeChanged()"><option>10</option><option selected>20</option><option>50</option></select></div>
+    </div>
+    <div class="form-actions"><span id="status" class="status">Loading…</span></div>
+    <div id="users"></div>
+    <div class="pager" id="pager"></div>
+  </section>
+</main>
+<script>
+let datasetId = "", page = 1, pageSize = 20, total = 0, searchTimer = null;
+const subjectCache = new Map(), caseCache = new Map(), expandedSubjects = new Set();
+const $ = (id) => document.getElementById(id);
+const adminSecret = sessionStorage.getItem("judgeAdminSecret");
+if (!adminSecret) location.replace("/");
+function authFailed() { sessionStorage.removeItem("judgeAdminSecret"); sessionStorage.removeItem("judgeAdminActor"); location.replace("/"); }
+function headers() { return { "content-type":"application/json", "x-judge-admin-secret":adminSecret, "x-judge-actor":sessionStorage.getItem("judgeAdminActor") || "dashboard-user" }; }
+function esc(value) { return String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+function pretty(value) { return esc(JSON.stringify(value, null, 2)); }
+function date(value) { return value ? new Date(value).toLocaleString() : "—"; }
+// Some snapshot birth dates came from the Excel sheet as serial numbers
+// (e.g. 30456 = 1983-05-20); convert those to ISO dates for display.
+function fmtDate(value) {
+  if (value == null || value === "") return value;
+  const serial = Number(value);
+  if (/^\d+(\.\d+)?$/.test(String(value)) && serial > 20000 && serial < 80000) {
+    return new Date(Date.UTC(1899, 11, 30) + serial * 86400000).toISOString().slice(0, 10);
+  }
+  return value;
+}
+async function api(url, options = {}) { const response = await fetch(url, { ...options, headers: { ...headers(), ...(options.headers || {}) } }); if (response.status === 403) authFailed(); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.details || body.error || `HTTP ${response.status}`); return body; }
+
+async function init() {
+  $("status").textContent = "Loading…";
+  try {
+    const data = await api("/api/admin/datasets");
+    const preferred = (data.datasets || []).find((d) => d.track === "cg_batch_corpus");
+    if (preferred) { datasetId = preferred.id; page = 1; await loadSubjects(); }
+    else $("status").textContent = "The cg_batch_corpus dataset is not registered.";
+  } catch (error) { $("status").textContent = `Failed: ${error.message}`; }
+}
+function searchChanged() { clearTimeout(searchTimer); searchTimer = setTimeout(() => { page = 1; loadSubjects(); }, 300); }
+function pageSizeChanged() { pageSize = Number($("page-size").value); page = 1; loadSubjects(); }
+function goToPage(next) { page = next; loadSubjects(); }
+
+async function loadSubjects() {
+  if (!datasetId) return;
+  $("status").textContent = "Loading users…";
+  const params = new URLSearchParams({ datasetId, page: String(page), pageSize: String(pageSize) });
+  const search = $("search").value.trim();
+  if (search) params.set("search", search);
+  try {
+    const data = await api(`/api/admin/dataset-browser/subjects?${params}`);
+    total = data.total;
+    renderUsers(data.subjects || []);
+    renderPager();
+    const from = total ? (page - 1) * pageSize + 1 : 0, to = Math.min(total, page * pageSize);
+    $("status").textContent = `Showing ${from}–${to} of ${total} users.`;
+  } catch (error) { $("status").textContent = `Failed: ${error.message}`; $("users").innerHTML = ""; $("pager").innerHTML = ""; }
+}
+
+function renderUsers(subjects) {
+  $("users").innerHTML = subjects.map((s) => `
+    <details class="user-card" data-subject="${s.id}" ontoggle="userToggled(this)">
+      <summary>
+        <span class="key">${esc(s.subjectKey)}</span>
+        <span class="grow">${esc(s.name || "—")}<span class="muted">${s.gender ? ` · ${esc(s.gender)}` : ""}${s.date ? ` · ${esc(fmtDate(s.date))}` : ""}${s.city ? ` · ${esc(s.city)}${s.country ? `, ${esc(s.country)}` : ""}` : ""}</span></span>
+        <span class="pill">${s.caseCount} cases</span>
+        <span class="pill">${s.artifactCount} artifacts</span>
+      </summary>
+      <div class="user-body" id="body-${s.id}">${expandedSubjects.has(s.id) && subjectCache.has(s.id) ? subjectBody(subjectCache.get(s.id)) : '<p class="hint">Loading…</p>'}</div>
+    </details>`).join("") || '<p class="muted">No users match this search.</p>';
+  for (const id of expandedSubjects) {
+    const el = document.querySelector(`details.user-card[data-subject="${id}"]`);
+    if (el) el.open = true;
+  }
+}
+
+function renderPager() {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  let buttons = `<button ${page <= 1 ? "disabled" : ""} onclick="goToPage(${page - 1})">Prev</button>`;
+  const windowStart = Math.max(1, Math.min(page - 3, pages - 6));
+  for (let p = windowStart; p <= Math.min(pages, windowStart + 6); p++) {
+    buttons += `<button class="${p === page ? "current" : ""}" onclick="goToPage(${p})">${p}</button>`;
+  }
+  buttons += `<button ${page >= pages ? "disabled" : ""} onclick="goToPage(${page + 1})">Next</button>`;
+  $("pager").innerHTML = total > pageSize ? buttons : "";
+}
+
+async function userToggled(el) {
+  const id = el.dataset.subject;
+  if (!el.open) { expandedSubjects.delete(id); return; }
+  expandedSubjects.add(id);
+  const body = $(`body-${id}`);
+  if (!subjectCache.has(id)) {
+    body.innerHTML = '<p class="hint">Loading user…</p>';
+    try { subjectCache.set(id, await api(`/api/admin/dataset-browser/subjects/${id}`)); }
+    catch (error) { body.innerHTML = `<p class="error">${esc(error.message)}</p>`; return; }
+  }
+  body.innerHTML = subjectBody(subjectCache.get(id));
+}
+
+function profileTable(snap, extraRows = []) {
+  return [["Name", snap.name], ...extraRows, ["Gender", snap.gender], ["Birth date", fmtDate(snap.date)], ["Birth time", snap.time], ["Timezone", snap.timezone], ["City", snap.city], ["Country", snap.country], ["Latitude", snap.latitude], ["Longitude", snap.longitude]]
+    .filter(([, v]) => v != null && v !== "")
+    .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("");
+}
+function subjectBody(data) {
+  refreshTypeFilter(data);
+  const s = data.subject, snap = s.snapshot || {};
+  const related = data.relatedPeople || [];
+  const relatedHtml = related.length
+    ? related.map((person) => {
+        const psnap = person.snapshot || {};
+        return `<div style="margin-bottom:18px"><h3>${esc(psnap.name || person.subjectKey)} <span class="muted">(${esc(psnap.relation || "related")})</span></h3><table><tbody>${profileTable(psnap)}</tbody></table></div>`;
+      }).join("")
+    : '<p class="muted">No partner or relative subjects linked to this user.</p>';
+  const filter = $("type-filter").value;
+  const cases = (data.cases || []).filter((c) => !filter || c.readingType === filter);
+  const groups = new Map();
+  for (const c of cases) { const key = c.readingType || "other"; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(c); }
+  const groupsHtml = [...groups.entries()].map(([type, list]) => `
+    <p class="group-title">${esc(type)} (${list.length})</p>
+    ${list.map((c) => `
+      <details class="case-row" data-case="${c.caseId}" ontoggle="caseToggled(this)">
+        <summary><strong>${esc(c.readingSubtype || "—")}</strong> <span class="muted">${esc(c.caseKey)}</span> ${c.hasGold ? '<span class="pill">gold</span>' : ""} ${(c.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join(" ")}</summary>
+        <div id="case-${c.caseId}"><p class="hint">Loading…</p></div>
+      </details>`).join("")}`).join("");
+  return `
+    <div class="two-col">
+      <div><h3>Profile</h3><table><tbody>${profileTable(snap) || '<tr><td class="muted">No profile fields.</td></tr>'}</tbody></table>
+        <p class="hint">Dataset: ${esc(s.datasetTrack)} / ${esc(s.datasetVersion)} · checksum ${esc((s.checksum || "").slice(0, 12))}…</p>
+        <details><summary>Raw subject snapshot</summary><pre>${pretty(snap)}</pre></details></div>
+      <div><h3>Partners &amp; relatives</h3>${relatedHtml}</div>
+    </div>
+    <h3>Reading cases ${filter ? `· filtered by ${esc(filter)}` : ""} (${cases.length})</h3>
+    ${groupsHtml || '<p class="muted">No cases match this filter.</p>'}`;
+}
+
+function refreshTypeFilter(data) {
+  const types = new Set();
+  for (const cached of subjectCache.values()) for (const c of cached.cases || []) if (c.readingType) types.add(c.readingType);
+  if (data) for (const c of data.cases || []) if (c.readingType) types.add(c.readingType);
+  const current = $("type-filter").value;
+  const options = ["", ...[...types].sort()];
+  $("type-filter").innerHTML = options.map((t) => `<option value="${esc(t)}">${t ? esc(t) : "All reading types"}</option>`).join("");
+  $("type-filter").value = current;
+}
+function rerenderExpanded() {
+  for (const id of expandedSubjects) { const body = $(`body-${id}`); if (body && subjectCache.has(id)) body.innerHTML = subjectBody(subjectCache.get(id)); }
+}
+
+async function caseToggled(el) {
+  const id = el.dataset.case;
+  if (!el.open) return;
+  const target = $(`case-${id}`);
+  if (!caseCache.has(id)) {
+    target.innerHTML = '<p class="hint">Loading case…</p>';
+    try { caseCache.set(id, await api(`/api/admin/dataset-browser/cases/${id}`)); }
+    catch (error) { target.innerHTML = `<p class="error">${esc(error.message)}</p>`; return; }
+  }
+  target.innerHTML = caseBody(caseCache.get(id));
+}
+
+function usageLine(g) { const u = g.usage || {}; return `P ${u.promptTokens ?? "—"} · C ${u.completionTokens ?? "—"} · Cached ${u.cachedTokens ?? "—"} · Total ${u.totalTokens ?? "—"}${u.latencyMs != null ? ` · ${u.latencyMs} ms` : ""}${u.costUsd != null ? ` · $${Number(u.costUsd).toFixed(6)}` : ""}`; }
+function generationPanel(label, g) {
+  if (!g) return `<div class="panel"><h3>${esc(label)}</h3><p class="warn">No stored output for this case.</p></div>`;
+  const u = g.usage || {};
+  const metrics = [["Prompt",u.promptTokens],["Completion",u.completionTokens],["Cached",u.cachedTokens],["Reasoning",u.reasoningTokens],["Total",u.totalTokens],["System prompt",u.systemPromptTokens],["Latency",u.latencyMs == null ? "Unavailable" : `${u.latencyMs} ms`],["Cost",u.costUsd == null ? "—" : `$${Number(u.costUsd).toFixed(6)}`],["Started",date(g.startedAt)],["Completed",date(g.completedAt)]];
+  return `<div class="panel"><h3>${esc(label)}</h3><p><span class="pill">${esc(g.executionMode)}</span> ${esc(g.provider)}/${esc(g.model)} · schema valid: ${esc(g.schemaValid)}</p><table><tbody>${metrics.map(([name,value]) => `<tr><th>${esc(name)}</th><td>${esc(value ?? "—")}</td></tr>`).join("")}</tbody></table>${g.error ? `<p class="error">${esc(g.error)}</p>` : ""}<details open><summary>Parsed reading output</summary><pre>${pretty(g.parsedOutput)}</pre></details><details><summary>Raw provider response</summary><pre>${pretty(g.rawOutput)}</pre></details><details><summary>Exact request body</summary><pre>${pretty(g.requestBody)}</pre></details></div>`;
+}
+
+function caseBody(data) {
+  const c = data.case;
+  const references = (data.references || []).map((g) => generationPanel(`CG Standard reference · ${g.executionMode}`, g)).join("");
+  const outputs = (data.outputs || []).map((g) => generationPanel(`Output · ${g.experiment?.name || g.executionMode}`, g)).join("");
+  const artifacts = (data.artifacts || []).map((a) => `<details><summary>Artifact · ${esc(a.artifactType)} <span class="muted">${esc((a.outputChecksum || "").slice(0, 12))}</span></summary><pre>${pretty(a.outputSnapshot)}</pre></details>`).join("");
+  return `
+    <p class="hint">${esc(c.key)} · prompt ${esc(c.promptVersion || "—")}${c.calculatorVersion ? ` · calc ${esc(c.calculatorVersion)}` : ""} · subject ${esc(c.subjectKey || "—")}</p>
+    <details><summary>Input snapshot (calc outputs sent to the model)</summary><pre>${pretty(c.inputSnapshot)}</pre></details>
+    ${c.provenance ? `<details><summary>Provenance</summary><pre>${pretty(c.provenance)}</pre></details>` : ""}
+    ${data.goldOutput ? `<details open><summary><strong>Gold output (dataset ground truth)</strong></summary><pre>${pretty(data.goldOutput)}</pre></details>` : '<p class="hint">No embedded gold output on this case.</p>'}
+    ${references || '<p class="hint">No frozen CG Standard reference for this case.</p>'}
+    ${outputs || '<p class="hint">No experiment outputs stored for this case.</p>'}
+    ${artifacts ? `<h3>Calculation artifacts</h3>${artifacts}` : ""}`;
+}
+init();
+</script>
+</body>
+</html>

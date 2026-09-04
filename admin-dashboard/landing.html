@@ -6,8 +6,47 @@
 <title>Judge LLM</title>
 <style>
   :root { color-scheme:dark; } body { margin:0; min-height:100vh; display:grid; place-items:center; color:#eef2ff; font:16px/1.6 system-ui,sans-serif; background:radial-gradient(circle at 70% 20%,#28205e,transparent 32rem),#090d16; }
-  main { width:min(680px,calc(100% - 40px)); padding:42px; border:1px solid #2d3850; border-radius:20px; background:rgba(17,24,39,.9); box-shadow:0 24px 80px #0006; } .eyebrow { color:#a99fff; font-size:12px; letter-spacing:.12em; } h1 { margin:8px 0 12px; font-size:42px; line-height:1.1; color:#fff; } p { color:#aab5c9; } a { display:inline-block; margin-top:18px; padding:11px 17px; border-radius:9px; color:#fff; text-decoration:none; background:#6257d5; } a:hover { background:#786deb; } .note { margin-top:28px; padding-top:18px; border-top:1px solid #2d3850; font-size:14px; }
+  main { width:min(680px,calc(100% - 40px)); padding:42px; border:1px solid #2d3850; border-radius:20px; background:rgba(17,24,39,.9); box-shadow:0 24px 80px #0006; } .eyebrow { color:#a99fff; font-size:12px; letter-spacing:.12em; } h1 { margin:8px 0 12px; font-size:42px; line-height:1.1; color:#fff; } p { color:#aab5c9; } a { color:#b8b0ff; } .note { margin-top:28px; padding-top:18px; border-top:1px solid #2d3850; font-size:14px; }
+  label { display:block; color:#95a3b8; margin:14px 0 6px; font-size:14px; } input { width:100%; box-sizing:border-box; min-height:40px; border:1px solid #2d3850; border-radius:9px; background:#0c1320; color:#eef2ff; padding:8px 12px; font:inherit; } button { display:inline-block; margin-top:20px; padding:11px 17px; border:1px solid #6257d5; border-radius:9px; color:#fff; font:inherit; cursor:pointer; background:#6257d5; } button:hover { background:#786deb; }
+  .error { color:#ff7676; font-size:14px; margin-top:12px; min-height:20px; }
 </style>
 </head>
-<body><main><div class="eyebrow">PRIVATE INTERNAL TOOL</div><h1>Judge LLM</h1><p>Evaluate which model produces the strongest Cosmic Guidance readings. The Judge service uses the versioned ground-truth dataset, asks the configured judge model to compare readings, and reports the result as a percentage.</p><p class="note">Cosmic Guidance remains the production source of truth. This service never changes CG routing, subscriptions, credits, readings, caches, or user traffic.</p><a href="/admin/dashboard">Open admin dashboard →</a></main></body>
+<body><main>
+  <div class="eyebrow">PRIVATE INTERNAL TOOL</div><h1>Judge LLM</h1>
+  <p>Evaluate which model produces the strongest Cosmic Guidance readings. The Judge service uses the versioned ground-truth dataset, asks the configured judge model to compare readings, and reports the result as a percentage.</p>
+  <div id="signed-in" style="display:none"><p>You are signed in as <strong id="signed-in-actor"></strong>.</p><button onclick="continueToDashboard()">Continue to dashboard →</button> <a href="#" onclick="signOut(); return false;">Sign out</a></div>
+  <div id="sign-in">
+    <label for="secret">Admin shared secret</label><input id="secret" type="password" autocomplete="off" placeholder="x-judge-admin-secret" />
+    <label for="actor">Operator</label><input id="actor" placeholder="operator" />
+    <p class="error" id="error"></p>
+    <button onclick="signIn()">Sign in →</button>
+  </div>
+  <p class="note">Cosmic Guidance remains the production source of truth. This service never changes CG routing, subscriptions, credits, readings, caches, or user traffic.</p>
+</main>
+<script>
+const SECRET_KEY = "judgeAdminSecret", ACTOR_KEY = "judgeAdminActor";
+const storedSecret = sessionStorage.getItem(SECRET_KEY);
+if (storedSecret) {
+  document.getElementById("sign-in").style.display = "none";
+  document.getElementById("signed-in").style.display = "block";
+  document.getElementById("signed-in-actor").textContent = sessionStorage.getItem(ACTOR_KEY) || "operator";
+}
+function continueToDashboard() { location.href = "/admin/dashboard/index.html"; }
+function signOut() { sessionStorage.removeItem(SECRET_KEY); sessionStorage.removeItem(ACTOR_KEY); location.reload(); }
+async function signIn() {
+  const secret = document.getElementById("secret").value, actor = document.getElementById("actor").value.trim() || "operator", error = document.getElementById("error");
+  error.textContent = "";
+  if (!secret) { error.textContent = "Enter the admin shared secret."; return; }
+  try {
+    const response = await fetch("/api/admin/datasets", { headers: { "x-judge-admin-secret": secret, "x-judge-actor": actor } });
+    if (response.status === 403) { error.textContent = "Invalid secret — access denied."; return; }
+    if (!response.ok) { error.textContent = `Sign-in check failed (HTTP ${response.status}). Try again.`; return; }
+    sessionStorage.setItem(SECRET_KEY, secret);
+    sessionStorage.setItem(ACTOR_KEY, actor);
+    continueToDashboard();
+  } catch (_) { error.textContent = "Could not reach the Judge service."; }
+}
+document.getElementById("secret").addEventListener("keydown", (event) => { if (event.key === "Enter") signIn(); });
+</script>
+</body>
 </html>
