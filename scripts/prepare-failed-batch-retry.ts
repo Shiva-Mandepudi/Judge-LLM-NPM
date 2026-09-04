@@ -1,15 +1,16 @@
 import "dotenv/config";
 import crypto from "node:crypto";
 import path from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { pool } from "../server/db.js";
 
 const MODEL = "gpt-5.6-sol";
 const ENDPOINT = "/v1/chat/completions";
 const EXPERIMENT_ID = process.argv[2];
 const DATASET_VERSION = "cg-production-batch-only-20260828";
-const RETRY_VERSION = "retry-20260903";
-const SOURCE_DIRECTORY = path.resolve(process.cwd(), "artifacts", "batches", DATASET_VERSION);
+const SOURCE_RETRY_VERSION = process.argv[3];
+const RETRY_VERSION = process.argv[4] ?? (SOURCE_RETRY_VERSION ? `${SOURCE_RETRY_VERSION}-2` : "retry-20260903");
+const SOURCE_DIRECTORY = path.resolve(process.cwd(), "artifacts", "batches", DATASET_VERSION, SOURCE_RETRY_VERSION ?? "");
 const ARTIFACT_DIRECTORY = path.join(SOURCE_DIRECTORY, RETRY_VERSION);
 const MAX_BATCH_BYTES = 190_000_000;
 const MAX_BATCH_LINES = 50_000;
@@ -50,23 +51,26 @@ async function main() {
        JOIN eval_jobs j ON j.id=g.job_id AND j.experiment_id=$1
        JOIN eval_dataset_cases c ON c.id=j.case_id
        JOIN eval_prepared_requests p ON p.execution_run_id=g.execution_run_id AND p.case_id=c.id AND p.custom_id=g.custom_id
-      WHERE r.experiment_id=$1 AND r.metadata->>'partition' IS NOT NULL
-        AND r.model=$2 AND r.provider='openai' AND r.execution_mode='openai_batch' AND g.error IS NOT NULL
+      WHERE r.experiment_id=$1 AND ${SOURCE_RETRY_VERSION ? "r.metadata->>'retryVersion'=$2" : "r.metadata->>'partition' IS NOT NULL"}
+        AND r.model=$${SOURCE_RETRY_VERSION ? "3" : "2"} AND r.provider='openai' AND r.execution_mode='openai_batch' AND g.error IS NOT NULL
       ORDER BY g.custom_id,g.created_at DESC`,
-    [EXPERIMENT_ID, MODEL],
+    SOURCE_RETRY_VERSION ? [EXPERIMENT_ID, SOURCE_RETRY_VERSION, MODEL] : [EXPERIMENT_ID, MODEL],
   );
   const rows = result.rows as Row[];
   if (!rows.length) throw new Error("No failed original batch lines found");
   const byCustomId = new Map(rows.map((row) => [row.custom_id, row]));
-  const manifest = JSON.parse(await readFile(path.join(SOURCE_DIRECTORY, "manifest.json"), "utf8")) as { partitions: Array<{ partition: number; sha256: string }> };
+  const manifestPath = path.join(SOURCE_DIRECTORY, "manifest.json");
+  const sources = SOURCE_RETRY_VERSION
+    ? (await readdir(SOURCE_DIRECTORY)).filter((file) => file.endsWith(".jsonl")).sort().map((file, index) => ({ partition: index + 1, sha256: null, filePath: path.join(SOURCE_DIRECTORY, file) }))
+    : (JSON.parse(await readFile(manifestPath, "utf8")) as { partitions: Array<{ partition: number; sha256: string }> }).partitions.map((source) => ({ ...source, filePath: path.join(SOURCE_DIRECTORY, `${DATASET_VERSION}.part-${String(source.partition).padStart(2, "0")}.jsonl`) }));
   const parts: Array<{ rows: RetryRow[]; contents: string }> = [];
   const found = new Set<string>();
   let current: RetryRow[] = [];
   let contents = "";
   let currentBytes = 0;
-  for (const source of manifest.partitions) {
-    const sourceContents = await readFile(path.join(SOURCE_DIRECTORY, `${DATASET_VERSION}.part-${String(source.partition).padStart(2, "0")}.jsonl`), "utf8");
-    if (sha256(sourceContents) !== source.sha256) throw new Error(`Original partition ${source.partition} checksum changed`);
+  for (const source of sources) {
+    const sourceContents = await readFile(source.filePath, "utf8");
+    if (source.sha256 && sha256(sourceContents) !== source.sha256) throw new Error(`Original partition ${source.partition} checksum changed`);
     for (const rawLine of sourceContents.trimEnd().split("\n")) {
       const customId = rawLine.match(/^\{"custom_id":"([^"\\]+)"/)?.[1];
       const row = customId ? byCustomId.get(customId) : undefined;
