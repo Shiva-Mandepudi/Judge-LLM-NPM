@@ -1,0 +1,66 @@
+# Machine-readable form of docs/REBUILD-PLAN.md §1.5 "Open questions and blockers to
+# close before Phase 0 starts". Each entry gates the config/feature it blocks so the
+# loader refuses to activate a blocked thing instead of a person having to remember to
+# check prose. status: open | closed. Do not flip to closed without recording who/how.
+blockers:
+  - id: numerology-silver-source
+    status: closed
+    closedBy: "user, 2026-09-08 session"
+    closedReason: >
+      Policy decision, not a data finding: this evaluation does not use a separate
+      silver/gold reference for any track. The generated readings already stored in
+      eval_dataset_cases/eval_generations (candidate output from gpt-5.6-sol) are the
+      final dataset — there is no plan to build or import a human-reviewed reference.
+      This is compatible with docs/LLM PLAN/02-metric-suite/02-silver-similarity-metrics.md,
+      which specs the silver comparison as an axis appended only when
+      `prompt.includeSilverReference: true`, never a requirement of the core universal
+      + reading-specific rubric metrics. Accordingly config/models.yaml sets
+      `includeSilverAsBlindArm: false` and no track config sets
+      `prompt.includeSilverReference: true`. Files referenced by
+      docs/numerology-gold-dataset.md (numerology-generation-request-builder.ts,
+      numerology-gold-dataset.ts, numerology-gold-pipeline.ts) still do not exist and
+      will not be built. Note: eval_dataset_cases.gold_output and
+      eval_reference_generations are a separate, still-active legacy concept (used by
+      the current admin dashboard and cb-actor-001 benchmark scripts) — left in place,
+      not part of this decision, not removed.
+    blocks: ["tracks.numerology_*"]
+    reason: >
+      Files referenced by docs/numerology-gold-dataset.md
+      (numerology-generation-request-builder.ts, numerology-gold-dataset.ts,
+      numerology-gold-pipeline.ts) do not exist in this checkout. No reviewed silver
+      source exists yet.
+
+  - id: partner-coverage-policy
+    status: closed
+    closedBy: "user, 2026-09-08 session"
+    closedReason: >
+      Verified directly against JUDGE_DATABASE_URL: eval_dataset_cases has 100/100
+      actors covered for synastry, composite, and number_compatibility (200 rows each,
+      brief+detailed). Actors cb-actor-002..cb-actor-005 have real, distinct named
+      partners (e.g. cb-actor-002 / "Amala Akkineni"), not placeholders; only
+      cb-actor-001 uses an explicitly-named supplied-partner record. The "5 actors
+      with no partner" premise in docs/REBUILD-PLAN.md §1.5 (sourced from the
+      `prepare-cg-batch-corpus.ts` generator script, which hardcodes no-partner for
+      actor number <= 5) does not match what is actually stored — this data was
+      evidently produced by a different/earlier path. §1.5 should be corrected to
+      match this finding.
+    blocks: ["tracks.synastry_*", "tracks.composite_*", "tracks.number_compatibility_*"]
+    reason: >
+      5 of 100 synthetic actors in AB Dataset.xlsx have no partner. No approved policy
+      (synthetic-partner fixture vs. declared-unavailable) exists yet for those 5.
+
+  - id: champion-model-confirmation
+    status: open
+    blocks: ["models.champion"]
+    reason: >
+      "gpt-5.6-sol" is a provisional value observed in existing artifacts, not a
+      confirmed provider model ID/family. Judge-independence checks and any paid run
+      are blocked until confirmed.
+
+  - id: production-corpus-reconciliation
+    status: open
+    blocks: ["datasource.production-batch-corpus"]
+    reason: >
+      artifacts/batches/cg-production-batch-only-20260828/ has not been confirmed
+      reconciled/imported by the CosmicGuidance repo owner, and its actual
+      track/depth coverage is unverified beyond the 2,526-request manifest count.

@@ -1,0 +1,21 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 1/17)
+track: natal_brief
+label: "Natal Chart — Brief"
+purpose: "Brief interpretation of a user's natal chart."
+depth: brief
+status: active
+
+datasource:
+  silver: { table: natalCharts, outputColumn: briefInsight, userKey: userId }
+  challenger: { source: judge-service-generation } # no per-reading challenger column in CG — see docs/REBUILD-PLAN.md §1.4
+  input: { table: natalCharts, columns: [chartData, chartDetails] }
+
+renderer: natal
+strata: [chartComplexity, birthTimeKnown]
+rowsPerUser: 1
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/natal.md"
+
+sampling:
+  mode: stratified

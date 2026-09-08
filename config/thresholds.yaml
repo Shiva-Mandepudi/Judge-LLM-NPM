@@ -1,0 +1,29 @@
+# Schema and values: docs/LLM PLAN/03-build-plan/00-architecture-and-parametrization.md#configthresholdsyaml
+# Copied verbatim from the plan. Every threshold here is config, never hardcoded in
+# code (docs/REBUILD-PLAN.md §0 rule #4).
+composite:
+  weights:
+    personalization: 1.0
+    internal_consistency: 1.0
+    voice_alignment: 1.0
+    usefulness: 1.0
+    language_quality: 1.0
+  requireAllScored: true
+
+gates:
+  maxFailureRateUpperBound: 0.0
+
+decision:
+  qualityMarginDelta: 0.25
+  maxDegenerateRate: 0.02
+
+statistics:
+  bootstrapIterations: 10000
+  confidenceLevel: 0.95
+  clusterBy: userId
+  multiplicityCorrection: benjamini-hochberg
+
+judgeReliability:
+  rejudgeSampleRate: 0.10
+  minSelfAgreementWithinOne: 0.90
+  minCrossJudgeAgreementWithinOne: 0.70

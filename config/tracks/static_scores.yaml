@@ -1,0 +1,20 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 16/17)
+track: static_scores
+label: "Static Scores"
+purpose: "Interpretation of a user's static score set."
+status: active
+
+datasource:
+  silver: { table: userScores, outputColumn: scoreInsights, userKey: userId }
+  challenger: { source: judge-service-generation }
+  input: { table: userScores, columns: [scoreType] }
+
+renderer: static_scores
+strata: [chartComplexity]
+rowsPerUser: 1
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/static-scores.md"
+
+sampling:
+  mode: stratified

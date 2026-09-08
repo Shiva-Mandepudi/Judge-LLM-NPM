@@ -1,8 +1,8 @@
 import type { JudgeProvider, JudgeCompletionRequest, JudgeCompletionResult } from "./types.js";
 
-// No SDK dependency — the Messages API forced-tool-use pattern is a single
-// HTTP call, and avoiding the SDK keeps this service's dependency surface
-// (and its Secret Manager blast radius) minimal.
+// Keep the provider on the native structured-output path. This avoids a
+// second parser contract and lets Anthropic enforce the same schema used by
+// the OpenAI and Gemini judge adapters.
 export const anthropicProvider: JudgeProvider = {
   name: "anthropic",
   async complete(req: JudgeCompletionRequest, apiKey: string): Promise<JudgeCompletionResult> {
@@ -17,25 +17,26 @@ export const anthropicProvider: JudgeProvider = {
       body: JSON.stringify({
         model: req.model,
         max_tokens: 4096,
-        system: req.systemPrompt,
+        system: [{ type: "text", text: req.systemPrompt, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: req.userPrompt }],
-        tools: [{ name: req.schemaName, description: "Emit the judge scoring result.", input_schema: req.jsonSchema }],
-        tool_choice: { type: "tool", name: req.schemaName },
+        thinking: { type: "adaptive" },
+        output_config: { format: { type: "json_schema", schema: req.jsonSchema } },
       }),
     });
     const latencyMs = Date.now() - start;
     if (!res.ok) throw new Error(`Anthropic judge call failed: ${res.status} ${await res.text()}`);
     const json = (await res.json()) as {
-      content: Array<{ type: string; input?: Record<string, unknown> }>;
-      usage: { input_tokens: number; output_tokens: number };
+      content: Array<{ type: string; text?: string }>;
+      usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number };
     };
-    const toolUse = json.content.find((c) => c.type === "tool_use");
-    if (!toolUse?.input) throw new Error("Anthropic judge call returned no tool_use block");
+    const text = json.content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("");
+    if (!text) throw new Error("Anthropic judge call returned no JSON content");
     return {
-      parsed: toolUse.input,
+      parsed: JSON.parse(text),
       raw: json,
       promptTokens: json.usage.input_tokens,
       completionTokens: json.usage.output_tokens,
+      cacheReadInputTokens: json.usage.cache_read_input_tokens ?? 0,
       latencyMs,
       costUsd: null,
     };

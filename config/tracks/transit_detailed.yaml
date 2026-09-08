@@ -1,0 +1,21 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 4/17)
+track: transit_detailed
+label: "Transit Reading — Detailed"
+purpose: "Detailed interpretation of a user's current transits."
+depth: detailed
+status: active
+
+datasource:
+  silver: { table: transitReadings, outputColumn: detailedInsight, userKey: userId }
+  challenger: { source: judge-service-generation }
+  input: { table: transitReadings, columns: [transitDate, transitTime] }
+
+renderer: transit
+strata: [chartComplexity, season]
+rowsPerUser: 1
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/transit.md"
+
+sampling:
+  mode: stratified

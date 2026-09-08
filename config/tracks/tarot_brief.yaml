@@ -1,0 +1,20 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 13/17)
+track: tarot_brief
+label: "Tarot Reading — Brief"
+purpose: "Brief interpretation of a user's tarot spread."
+depth: brief
+status: active
+
+datasource:
+  silver: { table: tarotReadings, userKey: userId } # table confirmed (docs/REBUILD-PLAN.md §1.4); exact output column unconfirmed
+  challenger: { source: judge-service-generation }
+
+renderer: tarot
+strata: [spreadType, reversedCount, questionPresent]
+rowsPerUser: 1
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/tarot.md"
+
+sampling:
+  mode: stratified

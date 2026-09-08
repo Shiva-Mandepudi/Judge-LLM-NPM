@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { pool } from "../db.js";
+import { logger } from "../lib/logger.js";
 
 export const healthRouter = Router();
 
@@ -12,6 +13,7 @@ healthRouter.get("/ready", async (_req, res) => {
     await pool.query("SELECT 1");
     res.status(200).json({ status: "ready" });
   } catch (err) {
-    res.status(503).json({ status: "not_ready", error: err instanceof Error ? err.message : String(err) });
+    logger.error("readiness_check_failed", { error: err instanceof Error ? err.message : String(err) });
+    res.status(503).json({ status: "not_ready" });
   }
 });

@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, integer, boolean, jsonb, timestamp, real, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, integer, boolean, jsonb, timestamp, real, unique, index, primaryKey } from "drizzle-orm/pg-core";
 
 // All tables live in the Judge service's own database/schema. Nothing here is
 // ever written to Cosmic Guidance's product DB, and nothing here references
@@ -415,5 +415,83 @@ export const evalAuditLog = pgTable("eval_audit_log", {
 export const evalIdempotencyKeys = pgTable("eval_idempotency_keys", {
   key: text("key").primaryKey(),
   jobId: uuid("job_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Rebuild artifacts. These tables are intentionally separate from the legacy
+// pairwise evaluator above; old rows remain historical and are never dual-written.
+export const evalSilverOutputs = pgTable("eval_silver_outputs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  track: text("track").notNull(),
+  stratumKey: text("stratum_key").notNull(),
+  output: jsonb("output").notNull(),
+  reviewStatus: text("review_status").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  contentHash: text("content_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  trackStratumVersionUnique: unique().on(t.track, t.stratumKey, t.promptVersion),
+}));
+
+export const evalRows = pgTable("eval_rows", {
+  rowId: text("row_id").primaryKey(),
+  runId: text("run_id").notNull(),
+  userId: text("user_id").notNull(),
+  track: text("track").notNull(),
+  stratum: jsonb("stratum").notNull(),
+  modelRef: text("model_ref").notNull(),
+  inputSnapshot: jsonb("input_snapshot").notNull(),
+  candidateOutput: jsonb("candidate_output"),
+  silverOutput: jsonb("silver_output"),
+  generation: jsonb("generation").notNull(),
+  loadStatus: text("load_status").notNull(),
+  provenance: jsonb("provenance"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  runIdx: index("eval_rows_run_idx").on(t.runId),
+  userIdx: index("eval_rows_user_idx").on(t.runId, t.userId),
+}));
+
+export const evalModelMap = pgTable("eval_model_map", {
+  runId: text("run_id").notNull(),
+  modelRef: text("model_ref").notNull(),
+  model: text("model").notNull(),
+  sealedAt: timestamp("sealed_at", { withTimezone: true }).notNull().defaultNow(),
+  contentHash: text("content_hash").notNull(),
+}, (t) => ({
+  runModelRefPk: primaryKey({ columns: [t.runId, t.modelRef] }),
+}));
+
+export const evalJudgementsV2 = pgTable("eval_judgements_v2", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  rowId: text("row_id").notNull().references(() => evalRows.rowId),
+  runId: text("run_id").notNull(),
+  track: text("track").notNull(),
+  userId: text("user_id").notNull(),
+  modelRef: text("model_ref").notNull(),
+  judgeModel: text("judge_model").notNull(),
+  judgeEffort: text("judge_effort").notNull(),
+  kernelHash: text("kernel_hash").notNull(),
+  rubricPackHash: text("rubric_pack_hash").notNull(),
+  schemaHash: text("schema_hash").notNull(),
+  usage: jsonb("usage").notNull(),
+  latencyMs: integer("latency_ms").notNull(),
+  costUsd: real("cost_usd"),
+  judgeStatus: text("judge_status").notNull(),
+  attempt: integer("attempt").notNull(),
+  response: jsonb("response"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  rowAttemptUnique: unique().on(t.rowId, t.attempt),
+  runIdx: index("eval_judgements_v2_run_idx").on(t.runId),
+}));
+
+export const evalRunManifests = pgTable("eval_run_manifests", {
+  runId: text("run_id").primaryKey(),
+  configSnapshot: jsonb("config_snapshot").notNull(),
+  promptHashes: jsonb("prompt_hashes").notNull(),
+  gitSha: text("git_sha"),
+  bootstrapSeed: text("bootstrap_seed").notNull(),
+  status: text("status").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

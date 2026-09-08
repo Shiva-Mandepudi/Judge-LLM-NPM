@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Judge LLM · Reviews &amp; settings</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="index.html"><span class="brand-mark">✦</span><span>Judge LLM</span></a>
+    <button id="menu-button" class="mobile-menu secondary" aria-label="Open navigation">☰</button>
+    <p class="nav-label">Workspace</p>
+    <nav id="main-nav" class="nav">
+      <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
+      <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Experiments</span></a>
+      <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Datasets</span></a>
+      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>Dataset users</span></a>
+      <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
+    </nav>
+    <div class="sidebar-footer"><strong>Private service</strong>Evaluation artifacts only</div>
+  </aside>
+  <main class="main">
+    <header class="page-header"><div><p class="eyebrow">Workspace / operations</p><h1>Reviews &amp; settings</h1><p class="lede">Resolve exceptions and keep the active judge configuration explicit, versioned, and auditable.</p></div><div class="header-actions"><button id="sign-out" class="secondary">Sign out</button></div></header>
+
+    <section class="panel">
+      <div class="panel-header"><div><h2>Human review queue</h2><p class="hint">Hard-gate failures, low confidence, borderline results, and judge disagreement require an operator decision.</p></div><span id="review-status" class="status"></span></div>
+      <div class="table-wrap"><table><thead><tr><th>Job</th><th>Experiment</th><th>Reason</th><th>Created</th><th>Resolution</th></tr></thead><tbody id="reviews-table"></tbody></table></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><div><h2>Judge configuration</h2><p class="hint">Provider credentials are referenced by secret name only. Saving creates a new version; it does not mutate old evidence.</p></div><span id="config-status" class="status"></span></div>
+      <div class="form-grid">
+        <div><label for="primary-provider">Primary provider</label><input id="primary-provider" placeholder="anthropic, openai, gemini, mock" /></div>
+        <div><label for="primary-model">Primary judge model</label><input id="primary-model" /></div>
+        <div><label for="primary-secretref">Primary secret reference</label><input id="primary-secretref" /></div>
+        <div><label for="secondary-provider">Secondary provider</label><input id="secondary-provider" placeholder="anthropic, openai, gemini, mock" /></div>
+        <div><label for="secondary-model">Secondary judge model</label><input id="secondary-model" /></div>
+        <div><label for="secondary-secretref">Secondary secret reference</label><input id="secondary-secretref" /></div>
+      </div>
+      <div class="form-actions"><label for="secondary-rate">Secondary judge sample rate (0–1)</label><input id="secondary-rate" type="number" min="0" max="1" step=".05" style="max-width:130px" /><button id="save-config">Save configuration</button></div>
+      <div class="divider"></div>
+      <div class="callout"><strong>Fail-closed reminder</strong><br />Unresolved model, provider, rate, or secret references should remain explicit until the paid-run sign-off is available.</div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><div><h2>Recent audit events</h2><p class="hint">The latest operator actions recorded by the service.</p></div><button id="refresh-audit" class="secondary">Refresh</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Event</th><th>Actor</th><th>Job</th><th>Created</th></tr></thead><tbody id="audit-table"></tbody></table></div>
+    </section>
+  </main>
+</div>
+<script src="app.js"></script>
+<script>
+const { $, esc, date, api } = JudgeUI;
+let currentConfig = null;
+
+function renderReviews(reviews) {
+  $("reviews-table").innerHTML = reviews.map((review) => `<tr><td>${esc(review.jobId)}</td><td>${esc(review.experimentId)}</td><td><span class="pill">${esc(review.reason)}</span></td><td>${date(review.createdAt)}</td><td><div class="actions"><select data-decision="${esc(review.id)}"><option value="confirm_fail">Confirm fail</option><option value="overturn_pass">Overturn pass</option><option value="needs_more_data">Needs more data</option></select><button data-resolve="${esc(review.id)}">Resolve</button></div><input data-notes="${esc(review.id)}" placeholder="Optional notes" /></td></tr>`).join("") || '<tr><td colspan="5" class="empty">Review queue is clear.</td></tr>';
+  $("reviews-table").querySelectorAll("button[data-resolve]").forEach((button) => button.addEventListener("click", () => resolveReview(button.dataset.resolve)));
+}
+
+async function loadReviews() {
+  $("review-status").textContent = "Loading…";
+  try { const data = await api("/api/admin/human-review"); renderReviews(data.reviews || []); $("review-status").textContent = `${(data.reviews || []).length} pending`; }
+  catch (error) { $("review-status").textContent = `Failed: ${error.message}`; }
+}
+
+async function resolveReview(id) {
+  const decision = document.querySelector(`[data-decision="${CSS.escape(id)}"]`).value;
+  const notes = document.querySelector(`[data-notes="${CSS.escape(id)}"]`).value.trim();
+  $("review-status").textContent = "Saving decision…";
+  try { await api(`/api/admin/human-review/${id}/resolve`, { method: "POST", body: JSON.stringify({ decision, notes: notes || undefined }) }); await loadReviews(); await loadAudit(); }
+  catch (error) { $("review-status").textContent = `Failed: ${error.message}`; }
+}
+
+async function loadConfig() {
+  try {
+    const response = await api("/api/admin/config/global");
+    currentConfig = response.value;
+    const primary = currentConfig.providers.primary_judge;
+    const secondary = currentConfig.providers.secondary_judge;
+    $("primary-provider").value = primary.provider;
+    $("primary-model").value = primary.model;
+    $("primary-secretref").value = primary.secretRef;
+    $("secondary-provider").value = secondary.provider;
+    $("secondary-model").value = secondary.model;
+    $("secondary-secretref").value = secondary.secretRef;
+    $("secondary-rate").value = currentConfig.secondaryJudgeSampleRate;
+  } catch (error) { $("config-status").textContent = `Could not load active config: ${error.message}`; }
+}
+
+async function saveConfig() {
+  const status = $("config-status");
+  status.textContent = "Saving…";
+  const base = currentConfig || { thresholds: {}, rateLimits: {}, retryPolicy: {}, humanReviewTriggers: {} };
+  const value = { ...base, providers: { primary_judge: { provider: $("primary-provider").value.trim(), model: $("primary-model").value.trim(), secretRef: $("primary-secretref").value.trim() }, secondary_judge: { provider: $("secondary-provider").value.trim(), model: $("secondary-model").value.trim(), secretRef: $("secondary-secretref").value.trim() } }, secondaryJudgeSampleRate: Number($("secondary-rate").value || 0) };
+  try { const result = await api("/api/admin/config", { method: "POST", body: JSON.stringify({ configKey: "global", value }) }); status.textContent = `Saved config version ${result.version}.`; await loadConfig(); await loadAudit(); }
+  catch (error) { status.textContent = `Failed: ${error.message}`; }
+}
+
+async function loadAudit() {
+  try {
+    const data = await api("/api/admin/audit-log");
+    $("audit-table").innerHTML = (data.auditLog || []).slice(0, 30).map((row) => `<tr><td>${esc(row.eventName)}</td><td>${esc(row.actor)}</td><td>${esc(row.jobId || "—")}</td><td>${date(row.createdAt)}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">No audit events recorded.</td></tr>';
+  } catch (error) { $("audit-table").innerHTML = `<tr><td colspan="4" class="error">Failed to load audit log: ${esc(error.message)}</td></tr>`; }
+}
+
+$("save-config").addEventListener("click", saveConfig);
+$("refresh-audit").addEventListener("click", loadAudit);
+Promise.all([loadReviews(), loadConfig(), loadAudit()]);
+</script>
+</body>
+</html>

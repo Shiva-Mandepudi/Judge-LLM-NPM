@@ -1,0 +1,21 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 11/17)
+track: numerology_brief
+label: "Numerology Reading — Brief"
+purpose: "Brief interpretation of one numerology number for a user, exhaustive over numberType."
+depth: brief
+status: active # numerology-silver-source closed 2026-09-08 — policy decision: no silver reference, rubric-judge candidate output directly
+
+# No silver reference (see config/blockers.yaml "numerology-silver-source"). Candidate
+# output already exists in this service's own DB, not read from CosmicGuidance directly.
+datasource:
+  challenger: { source: judge-service-generation } # already materialized in eval_dataset_cases (track=numerology) / eval_generations (model=gpt-5.6-sol)
+
+renderer: numerology
+strata: [numberType]
+rowsPerUser: 6
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/numerology.md"
+
+sampling:
+  mode: exhaustive

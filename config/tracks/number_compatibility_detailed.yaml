@@ -1,0 +1,21 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 10/17)
+track: number_compatibility_detailed
+label: "Number Compatibility — Detailed"
+purpose: "Detailed numerology compatibility interpretation between a user and a partner."
+depth: detailed
+status: active # partner-coverage-policy closed 2026-09-08 — verified 100/100 actors covered in JUDGE_DATABASE_URL
+
+datasource:
+  silver: { table: numerologyCompatibility, outputColumn: interpretation, userKey: userId }
+  challenger: { source: judge-service-generation }
+  input: { table: numerologyCompatibility, columns: [compatibilityScores] }
+
+renderer: number_compatibility
+strata: [masterNumberPresent]
+rowsPerUser: 1
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/number-compatibility.md"
+
+sampling:
+  mode: stratified

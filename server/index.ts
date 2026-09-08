@@ -10,6 +10,7 @@ import { requireAdminServiceAuth } from "./auth/service-auth.js";
 import { logger } from "./lib/logger.js";
 
 const app = express();
+app.disable("x-powered-by");
 app.use(express.json({ limit: "2mb" }));
 
 // Health/ready are unauthenticated for Cloud Run's own probes.

@@ -27,6 +27,8 @@ COPY --chown=node:node --from=prod-deps /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder   /app/dist         ./dist
 COPY --chown=node:node --from=builder   /app/datasets     ./datasets
 COPY --chown=node:node --from=builder   /app/migrations   ./migrations
+COPY --chown=node:node --from=builder   /app/config       ./config
+COPY --chown=node:node --from=builder   ["/app/docs/LLM PLAN", "/app/docs/LLM PLAN"]
 COPY --chown=node:node --from=builder   /app/admin-dashboard ./admin-dashboard
 
 USER node

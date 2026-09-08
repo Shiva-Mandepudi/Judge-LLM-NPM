@@ -1,0 +1,19 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 15/17)
+track: my_day
+label: "My Day"
+purpose: "Personalized daily guidance for a user."
+status: active
+
+datasource:
+  silver: { table: myDayBatchJobItems, userKey: userId } # no separate readings table — the batch job item is the row (docs/REBUILD-PLAN.md §1.4)
+  challenger: { source: judge-service-generation }
+
+renderer: my_day
+strata: [dayOfWeek, moonPhase, season]
+rowsPerUser: 1
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/my-day.md"
+
+sampling:
+  mode: stratified

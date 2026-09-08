@@ -2,11 +2,13 @@ import type { JudgeProvider } from "./types.js";
 import { anthropicProvider } from "./anthropic-provider.js";
 import { openaiProvider } from "./openai-provider.js";
 import { mockProvider } from "./mock-provider.js";
+import { geminiProvider } from "./gemini-provider.js";
 
 const PROVIDERS: Record<string, JudgeProvider> = {
   anthropic: anthropicProvider,
   openai: openaiProvider,
   mock: mockProvider,
+  gemini: geminiProvider,
 };
 
 export function getProvider(name: string): JudgeProvider {

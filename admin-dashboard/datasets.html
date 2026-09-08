@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Judge LLM · Datasets</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="index.html"><span class="brand-mark">✦</span><span>Judge LLM</span></a>
+    <button id="menu-button" class="mobile-menu secondary" aria-label="Open navigation">☰</button>
+    <p class="nav-label">Workspace</p>
+    <nav id="main-nav" class="nav">
+      <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
+      <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Experiments</span></a>
+      <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Datasets</span></a>
+      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>Dataset users</span></a>
+      <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
+    </nav>
+    <div class="sidebar-footer"><strong>Private service</strong>Evaluation artifacts only</div>
+  </aside>
+  <main class="main">
+    <header class="page-header"><div><p class="eyebrow">Workspace / datasets</p><h1>Datasets</h1><p class="lede">Verify immutable ground-truth coverage and inspect the stored outputs behind a benchmark run.</p></div><div class="header-actions"><a class="secondary" href="dataset-users.html">Browse users</a><button id="sign-out" class="secondary">Sign out</button></div></header>
+
+    <section class="panel">
+      <div class="panel-header"><div><h2>Ground-truth datasets</h2><p class="hint">A comparison can use ground-truth mode only when every case has a gold output or frozen CG reference.</p></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Track</th><th>Version</th><th>Cases</th><th>Gold outputs</th><th>Prompt</th><th>Frozen references</th></tr></thead><tbody id="datasets-table"></tbody></table></div>
+    </section>
+
+    <section class="panel" id="benchmark-output">
+      <div class="panel-header"><div><h2>Benchmark outputs</h2><p class="hint">Read-only evidence: CG Standard and candidate generations stored for each subject and reading case.</p></div></div>
+      <div class="form-grid"><div><label for="benchmark-experiment">Experiment</label><select id="benchmark-experiment"><option value="">Loading experiments…</option></select></div><div><label for="benchmark-filter">Subject, reading type, or case</label><input id="benchmark-filter" placeholder="e.g. cb-actor-001 or tarot" /></div></div>
+      <div class="form-actions"><button id="load-benchmark" class="secondary">Load benchmark outputs</button><span id="benchmark-status" class="status"></span></div>
+      <div class="table-wrap"><table><thead><tr><th>Subject</th><th>Reading</th><th>CG Standard</th><th>Candidate / batch</th><th></th></tr></thead><tbody id="benchmark-table"></tbody></table></div>
+      <div id="benchmark-detail"></div>
+    </section>
+  </main>
+</div>
+<script src="app.js"></script>
+<script>
+const { $, esc, api, pretty } = JudgeUI;
+let benchmarkCases = [];
+
+function usageLine(generation) {
+  const usage = generation.usage || {};
+  return `P ${usage.promptTokens ?? "—"} · C ${usage.completionTokens ?? "—"} · Cached ${usage.cachedTokens ?? "—"} · Total ${usage.totalTokens ?? "—"}`;
+}
+
+function renderBenchmarkCases() {
+  const filter = $("benchmark-filter").value.trim().toLowerCase();
+  const rows = benchmarkCases.filter((item) => !filter || [item.subjectKey, item.caseKey, item.readingType, item.readingSubtype, ...(item.tags || [])].join(" ").toLowerCase().includes(filter));
+  $("benchmark-table").innerHTML = rows.map((item) => {
+    const candidates = item.candidates || [];
+    return `<tr><td>${esc(item.subjectKey || "—")}</td><td><strong>${esc(item.readingType || item.caseKey)}</strong><br><span class="muted">${esc(item.readingSubtype || "—")}</span></td><td>${item.standard ? `<span class="pill">${esc(item.standard.executionMode)}</span><br>${esc(usageLine(item.standard))}` : '<span class="bad">Missing</span>'}</td><td>${candidates.length ? candidates.map((generation) => `<span class="pill">${esc(generation.executionMode)}</span> ${esc(usageLine(generation))}`).join("<br>") : '<span class="warn">Missing</span>'}</td><td><button class="secondary" data-case-id="${esc(item.caseId)}">View</button></td></tr>`;
+  }).join("") || '<tr><td colspan="5" class="empty">No matching benchmark cases.</td></tr>';
+  $("benchmark-table").querySelectorAll("button[data-case-id]").forEach((button) => button.addEventListener("click", () => loadBenchmarkCase(button.dataset.caseId)));
+}
+
+async function loadBenchmarkCases() {
+  const id = $("benchmark-experiment").value;
+  if (!id) { $("benchmark-status").textContent = "Choose an experiment."; return; }
+  $("benchmark-status").textContent = "Loading…";
+  $("benchmark-detail").innerHTML = "";
+  try {
+    const data = await api(`/api/admin/experiments/${id}/benchmark-cases`);
+    benchmarkCases = data.cases || [];
+    renderBenchmarkCases();
+    $("benchmark-status").textContent = `${benchmarkCases.length} cases · ${esc(data.experiment.datasetVersion)}`;
+  } catch (error) { $("benchmark-status").textContent = `Failed: ${error.message}`; }
+}
+
+function outputPanel(label, generation) {
+  if (!generation) return `<div class="panel"><h3>${esc(label)}</h3><p class="warn">No stored output for this case.</p></div>`;
+  const usage = generation.usage || {};
+  const metrics = [["Prompt", usage.promptTokens], ["Completion", usage.completionTokens], ["Cached", usage.cachedTokens], ["Reasoning", usage.reasoningTokens], ["Total", usage.totalTokens], ["System prompt", usage.systemPromptTokens], ["Latency", usage.latencyMs == null ? "Unavailable" : `${usage.latencyMs} ms`], ["Cost", usage.costUsd == null ? "—" : `$${Number(usage.costUsd).toFixed(6)}`]];
+  return `<div class="panel"><h3>${esc(label)}</h3><p><span class="pill">${esc(generation.executionMode)}</span> ${esc(generation.provider)}/${esc(generation.model)} · schema valid: ${esc(generation.schemaValid)}</p><table><tbody>${metrics.map(([name, value]) => `<tr><th>${esc(name)}</th><td>${esc(value ?? "—")}</td></tr>`).join("")}</tbody></table>${generation.error ? `<p class="error">${esc(generation.error)}</p>` : ""}<details open><summary>Parsed reading output</summary><pre>${pretty(generation.parsedOutput)}</pre></details><details><summary>Raw provider response</summary><pre>${pretty(generation.rawOutput)}</pre></details><details><summary>Exact request body</summary><pre>${pretty(generation.requestBody)}</pre></details></div>`;
+}
+
+async function loadBenchmarkCase(caseId) {
+  const experimentId = $("benchmark-experiment").value;
+  const out = $("benchmark-detail");
+  out.innerHTML = "Loading case evidence…";
+  try {
+    const data = await api(`/api/admin/experiments/${experimentId}/benchmark-cases/${caseId}`);
+    const subject = `<div class="panel"><h3>${esc(data.case.readingType)} · ${esc(data.case.readingSubtype)}</h3><p>Subject: <strong>${esc(data.subject.key || "—")}</strong> · Case: ${esc(data.case.key)}</p><details><summary>Dataset subject and input snapshot</summary><pre>${pretty({ subject: data.subject.snapshot, inputSnapshot: data.case.inputSnapshot, inputChecksum: data.case.inputChecksum })}</pre></details></div>`;
+    const candidates = (data.candidates || []).map((generation) => outputPanel(generation.executionMode === "openai_batch" ? "OpenAI Batch" : `Candidate · ${generation.executionMode}`, generation)).join("");
+    out.innerHTML = subject + `<div class="two-col">${outputPanel("CG Standard", data.standard)}${candidates || outputPanel("Candidate", null)}</div>`;
+  } catch (error) { out.innerHTML = `<p class="error">${esc(error.message)}</p>`; }
+}
+
+async function loadAll() {
+  try {
+    const [datasetResponse, experimentResponse] = await Promise.all([api("/api/admin/datasets"), api("/api/admin/experiments")]);
+    $("datasets-table").innerHTML = (datasetResponse.datasets || []).map((dataset) => `<tr><td>${esc(dataset.track)}</td><td>${esc(dataset.version)}</td><td>${dataset.caseCount}</td><td>${dataset.groundTruthCount}/${dataset.caseCount}</td><td>${esc(dataset.promptVersion || "—")}</td><td>${(dataset.referenceRuns || []).filter((run) => run.status === "frozen").map((run) => esc(run.name)).join(", ") || "—"}</td></tr>`).join("") || '<tr><td colspan="6" class="empty">No datasets registered.</td></tr>';
+    $("benchmark-experiment").innerHTML = `<option value="">Choose an experiment</option>` + (experimentResponse.experiments || []).map((experiment) => `<option value="${esc(experiment.id)}">${esc(experiment.name)} · ${esc(experiment.status)}</option>`).join("");
+  } catch (error) { $("benchmark-status").textContent = `Failed to load: ${error.message}`; }
+}
+
+$("benchmark-filter").addEventListener("input", renderBenchmarkCases);
+$("load-benchmark").addEventListener("click", loadBenchmarkCases);
+loadAll();
+</script>
+</body>
+</html>

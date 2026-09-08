@@ -13,6 +13,7 @@ export interface JudgeCompletionResult {
   completionTokens: number;
   latencyMs: number;
   costUsd: number | null;
+  cacheReadInputTokens?: number;
 }
 
 export interface JudgeProvider {

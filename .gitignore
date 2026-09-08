@@ -1,6 +1,6 @@
 node_modules
 .gcloudignore
-node_modules/
+runs/
 dist/
 test/
 .env

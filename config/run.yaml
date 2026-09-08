@@ -1,0 +1,14 @@
+# Schema: docs/LLM PLAN/03-build-plan/00-architecture-and-parametrization.md#configrunyaml
+# The 17-track registry is now reconciled in config/tracks/*.yaml. Individual
+# datasource coverage is still reported per run in coverage.json.
+runId: "TODO"
+users: 100
+tracks: [natal_brief, natal_detailed, transit_brief, transit_detailed, synastry_brief, synastry_detailed, composite_brief, composite_detailed, number_compatibility_brief, number_compatibility_detailed, numerology_brief, numerology_detailed, tarot_brief, tarot_detailed, my_day, static_scores, zodiac_profile]
+models: { fromModelsYaml: true }
+prompt: { includeSilverReference: false, cacheBreakpointAfter: rubric_pack }
+execution:
+  mode: batch
+  shardBy: track
+  maxConcurrentShards: 4
+  resume: true
+stages: [materialize, render, judge, validate, stats, cost, audit, report]

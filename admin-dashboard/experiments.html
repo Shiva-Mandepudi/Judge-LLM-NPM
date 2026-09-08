@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Judge LLM · Experiments</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="index.html"><span class="brand-mark">✦</span><span>Judge LLM</span></a>
+    <button id="menu-button" class="mobile-menu secondary" aria-label="Open navigation">☰</button>
+    <p class="nav-label">Workspace</p>
+    <nav id="main-nav" class="nav">
+      <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
+      <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Experiments</span></a>
+      <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Datasets</span></a>
+      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>Dataset users</span></a>
+      <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
+    </nav>
+    <div class="sidebar-footer"><strong>Private service</strong>Evaluation artifacts only</div>
+  </aside>
+  <main class="main">
+    <header class="page-header"><div><p class="eyebrow">Workspace / experiments</p><h1>Experiments</h1><p class="lede">Create a comparison, operate its queue, and inspect the evidence that produced the result.</p></div><div class="header-actions"><button id="sign-out" class="secondary">Sign out</button></div></header>
+
+    <section class="panel">
+      <div class="panel-header"><div><h2>New comparison</h2><p class="hint">The selected dataset remains the immutable reference. This form only defines the candidate model run.</p></div></div>
+      <div class="form-grid">
+        <div><label for="dataset">Ground-truth dataset</label><select id="dataset"><option value="">Loading datasets…</option></select><p id="dataset-status" class="hint"></p></div>
+        <div><label for="reference-run">Frozen CG reference (optional)</label><select id="reference-run"><option value="">Use dataset gold output</option></select><p class="hint">Use this when the dataset stores a frozen reference run.</p></div>
+        <div><label for="comparison-model">Comparison model</label><input id="comparison-model" list="model-options" required placeholder="e.g. gpt-4o or gemini-2.5-pro" /><datalist id="model-options"></datalist><p class="hint">Enter a provider model ID.</p></div>
+        <div><label for="comparison-name">Comparison name</label><input id="comparison-name" placeholder="e.g. August reading model test" /></div>
+        <div><label for="comparison-prompt">Prompt version</label><input id="comparison-prompt" required placeholder="Uses the dataset prompt by default" /></div>
+      </div>
+      <div class="form-actions"><button id="create-comparison">Create comparison</button><span id="create-status" class="status"></span></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><div><h2>Comparison runs</h2><p class="hint">Enqueue candidate generations first, then compute the judge result when the queue is ready.</p></div><span id="run-status" class="status"></span></div>
+      <div class="table-wrap"><table><thead><tr><th>Comparison</th><th>Reference</th><th>Candidate</th><th>Coverage</th><th>Match %</th><th>Decision</th><th>Actions</th></tr></thead><tbody id="comparisons-table"></tbody></table></div>
+    </section>
+
+    <section class="panel" id="report">
+      <div class="panel-header"><div><h2>Case report</h2><p class="hint">Exact input, readings, judge rationale, and per-case evidence for one comparison.</p></div></div>
+      <div class="form-actions"><select id="report-comparison" style="max-width:520px"><option value="">No comparisons loaded</option></select><button id="load-report" class="secondary">Load report</button></div>
+      <div id="report-output"></div>
+    </section>
+  </main>
+</div>
+<script src="app.js"></script>
+<script>
+const { $, esc, date, pct, api } = JudgeUI;
+let datasets = [];
+let experiments = [];
+
+function datasetChanged() {
+  const dataset = datasets.find((item) => item.id === $("dataset").value);
+  if (!dataset) return;
+  $("dataset-status").textContent = `${dataset.groundTruthCount}/${dataset.caseCount} cases have embedded gold output.`;
+  $("comparison-prompt").value = dataset.promptVersion || "";
+  $("reference-run").innerHTML = `<option value="">Use dataset gold output</option>` + (dataset.referenceRuns || []).filter((run) => run.status === "frozen").map((run) => `<option value="${esc(run.id)}">${esc(run.name)} · ${esc(run.model)} · ${run.completedCount}/${run.caseCount}</option>`).join("");
+}
+
+function fillModels() {
+  const names = new Set(experiments.flatMap((experiment) => [experiment.candidateModel, experiment.baselineModel]).filter(Boolean));
+  $("model-options").innerHTML = [...names].map((name) => `<option value="${esc(name)}"></option>`).join("");
+}
+
+async function createComparison() {
+  const dataset = datasets.find((item) => item.id === $("dataset").value);
+  const status = $("create-status");
+  if (!dataset) { status.textContent = "Choose a dataset."; return; }
+  const model = $("comparison-model").value.trim();
+  if (!model) { status.textContent = "Choose a comparison model."; return; }
+  status.textContent = "Creating…";
+  const payload = { name: $("comparison-name").value.trim() || `${dataset.track} · ${model}`, track: dataset.track, datasetId: dataset.id, candidateModel: model, candidatePromptVersion: $("comparison-prompt").value.trim() || dataset.promptVersion, comparisonType: "ground_truth" };
+  if ($("reference-run").value) payload.referenceRunId = $("reference-run").value;
+  try {
+    const result = await api("/api/admin/experiments", { method: "POST", body: JSON.stringify(payload) });
+    status.textContent = `Created ${result.id}. Enqueue it from the table.`;
+    await loadAll();
+  } catch (error) { status.textContent = `Failed: ${error.message}`; }
+}
+
+async function runAction(id, action) {
+  const status = $("run-status");
+  status.textContent = `${action === "enqueue" ? "Enqueuing" : "Computing"}…`;
+  try {
+    const endpoint = action === "enqueue" ? "enqueue" : "compute-results";
+    const result = await api(`/api/admin/experiments/${id}/${endpoint}`, { method: "POST" });
+    status.textContent = action === "enqueue" ? `Enqueued ${result.enqueued} case(s).` : "Results computed.";
+    await loadAll();
+  } catch (error) { status.textContent = `Failed: ${error.message}`; }
+}
+
+async function loadRows() {
+  return Promise.all(experiments.map(async (experiment) => {
+    const response = await api(`/api/admin/experiments/${experiment.id}/results`);
+    return { experiment, result: (response.results || []).at(-1), expected: datasets.find((dataset) => dataset.id === experiment.datasetId)?.caseCount || "—" };
+  }));
+}
+
+function renderRows(rows) {
+  $("comparisons-table").innerHTML = rows.map(({ experiment, result, expected }) => {
+    const sample = result?.sampleSize || 0;
+    const match = result ? Number(result.winRate || 0) + Number(result.tieRate || 0) : null;
+    const decision = result?.recommendation || experiment.status;
+    return `<tr><td><a href="experiments.html?id=${encodeURIComponent(experiment.id)}"><strong>${esc(experiment.name)}</strong></a><br><span class="muted">${esc(experiment.track)}</span></td><td>Dataset ground truth</td><td>${esc(experiment.candidateModel)}<br><span class="muted">${esc(experiment.candidatePromptVersion)}</span></td><td>${sample}/${expected}</td><td class="${match == null ? "muted" : match >= .6 ? "good" : "warn"}">${pct(match)}</td><td><span class="pill">${esc(decision)}</span></td><td><div class="actions"><button data-action="enqueue" data-id="${esc(experiment.id)}">Enqueue</button><button data-action="compute-results" data-id="${esc(experiment.id)}">Compute</button><button class="secondary" data-report="${esc(experiment.id)}">Cases</button></div></td></tr>`;
+  }).join("") || '<tr><td colspan="7" class="empty">No comparisons yet. Create the first one above.</td></tr>';
+  $("report-comparison").innerHTML = `<option value="">Choose a comparison</option>` + rows.map(({ experiment }) => `<option value="${esc(experiment.id)}">${esc(experiment.name)}</option>`).join("");
+  $("comparisons-table").querySelectorAll("button[data-action]").forEach((button) => button.addEventListener("click", () => runAction(button.dataset.id, button.dataset.action)));
+  $("comparisons-table").querySelectorAll("button[data-report]").forEach((button) => button.addEventListener("click", () => { $("report-comparison").value = button.dataset.report; loadReport(); }));
+  const queryId = new URLSearchParams(location.search).get("id");
+  if (queryId && experiments.some((experiment) => experiment.id === queryId)) { $("report-comparison").value = queryId; loadReport(); }
+}
+
+function outputPanel(label, generation) {
+  if (!generation) return `<div class="panel"><h3>${esc(label)}</h3><p class="warn">No stored output for this case.</p></div>`;
+  const usage = generation.usage || {};
+  const metrics = [["Prompt", usage.promptTokens], ["Completion", usage.completionTokens], ["Cached", usage.cachedTokens], ["Reasoning", usage.reasoningTokens], ["Total", usage.totalTokens], ["System prompt", usage.systemPromptTokens], ["Latency", usage.latencyMs == null ? "Unavailable" : `${usage.latencyMs} ms`], ["Cost", usage.costUsd == null ? "—" : `$${Number(usage.costUsd).toFixed(6)}`]];
+  return `<div class="panel"><h3>${esc(label)}</h3><p><span class="pill">${esc(generation.executionMode)}</span> ${esc(generation.provider)}/${esc(generation.model)} · schema valid: ${esc(generation.schemaValid)}</p><table><tbody>${metrics.map(([name, value]) => `<tr><th>${esc(name)}</th><td>${esc(value ?? "—")}</td></tr>`).join("")}</tbody></table>${generation.error ? `<p class="error">${esc(generation.error)}</p>` : ""}<details open><summary>Parsed reading output</summary><pre>${JudgeUI.pretty(generation.parsedOutput)}</pre></details><details><summary>Raw provider response</summary><pre>${JudgeUI.pretty(generation.rawOutput)}</pre></details><details><summary>Exact request body</summary><pre>${JudgeUI.pretty(generation.requestBody)}</pre></details></div>`;
+}
+
+async function loadReport() {
+  const id = $("report-comparison").value;
+  if (!id) return;
+  const out = $("report-output");
+  out.innerHTML = "Loading report…";
+  try {
+    const report = await api(`/api/admin/experiments/${id}/report`);
+    let html = `<div class="panel"><h3>${esc(report.experiment.name)}</h3><p>Track: ${esc(report.experiment.track)} · Reference: ${esc(report.experiment.comparisonType)} · Created: ${date(report.experiment.createdAt)}</p>`;
+    if (report.latestResult) { const result = report.latestResult; html += `<p class="${result.recommendation === "pass" ? "good" : result.recommendation === "rollback" ? "bad" : "warn"}">Match percentage: <strong>${pct(Number(result.winRate || 0) + Number(result.tieRate || 0))}</strong> · wins ${pct(result.winRate)} · ties ${pct(result.tieRate)} · losses ${pct(result.lossRate)} · ${result.sampleSize} cases</p><p class="hint">${esc((result.recommendationReasons || []).join(" "))}</p>`; }
+    html += `</div>`;
+    for (const job of report.jobs || []) {
+      const primary = job.judge?.primary;
+      const secondary = job.judge?.secondary;
+      html += `<details class="job"><summary>${esc(job.caseKey)} · ${esc(job.status)}${job.lastError ? ` · ${esc(job.lastError)}` : ""}</summary><p class="hint">Tags: ${esc((job.tags || []).join(", ") || "none")}</p><div class="two-col"><div><h3>Dataset input</h3><pre>${esc(JSON.stringify(job.inputSnapshot, null, 2))}</pre></div><div><h3>Readings</h3>${(job.generations || []).map((generation) => `<p><strong>${esc(generation.arm)}</strong> · ${esc(generation.model)} · schema valid: ${generation.schemaValid}</p><pre>${esc(JSON.stringify(generation.output, null, 2))}</pre>`).join("")}</div></div>${primary ? `<h3>Judge analysis</h3><p>Judge: ${esc(primary.provider)}/${esc(primary.model)} · winner: <strong>${esc(primary.winnerArm)}</strong> · confidence: ${esc(primary.confidenceLevel)}</p><p>${esc(primary.rationale)}</p><pre>${esc(JSON.stringify(primary.hardGateResultsByArm, null, 2))}</pre>` : "<p class=\"hint\">No judge result recorded.</p>"}${secondary ? `<p class="hint"><strong>Secondary judge:</strong> ${esc(secondary.provider)}/${esc(secondary.model)} · winner ${esc(secondary.winnerArm)} · ${esc(secondary.rationale)}</p>` : ""}</details>`;
+    }
+    out.innerHTML = html;
+  } catch (error) { out.innerHTML = `<p class="error">${esc(error.message)}</p>`; }
+}
+
+async function loadAll() {
+  try {
+    const [datasetResponse, experimentResponse] = await Promise.all([api("/api/admin/datasets"), api("/api/admin/experiments")]);
+    datasets = datasetResponse.datasets || [];
+    experiments = experimentResponse.experiments || [];
+    $("dataset").innerHTML = `<option value="">Choose a dataset</option>` + datasets.map((dataset) => `<option value="${esc(dataset.id)}">${esc(dataset.track)} / ${esc(dataset.version)} · ${dataset.groundTruthCount}/${dataset.caseCount} gold</option>`).join("");
+    fillModels();
+    renderRows(await loadRows());
+    const selected = new URLSearchParams(location.search).get("id");
+    if (selected) { $("report-comparison").value = selected; await loadReport(); }
+  } catch (error) { $("run-status").textContent = `Failed to load: ${error.message}`; }
+}
+
+$("dataset").addEventListener("change", datasetChanged);
+$("create-comparison").addEventListener("click", createComparison);
+$("load-report").addEventListener("click", loadReport);
+loadAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 17/17)
+# docs/REBUILD-PLAN.md §1.5: the plan's citation for a zodiac_profile router bypass
+# (P5, server/auth/service.ts:1085) could not be reproduced in CosmicGuidance and must
+# be re-verified before Phase 6, not carried forward as fact. Does not block Phase 0
+# config authoring.
+track: zodiac_profile
+label: "Zodiac Profile"
+purpose: "Interpretation of a user's zodiac profile."
+status: active
+
+datasource:
+  silver: { table: userZodiacProfiles, outputColumn: zodiacInsights, userKey: userId }
+  challenger: { source: judge-service-generation }
+
+renderer: zodiac_profile
+strata: [sunSign]
+rowsPerUser: 1
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/zodiac-profile.md"
+
+sampling:
+  mode: stratified

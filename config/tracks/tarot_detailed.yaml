@@ -1,0 +1,20 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 14/17)
+track: tarot_detailed
+label: "Tarot Reading — Detailed"
+purpose: "Detailed interpretation of a user's tarot spread."
+depth: detailed
+status: active
+
+datasource:
+  silver: { table: tarotReadings, userKey: userId }
+  challenger: { source: judge-service-generation }
+
+renderer: tarot
+strata: [spreadType, reversedCount, questionPresent]
+rowsPerUser: 1
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/tarot.md"
+
+sampling:
+  mode: stratified

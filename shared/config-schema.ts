@@ -8,7 +8,7 @@ import { z } from "zod";
 export const judgeProviderRoleSchema = z.enum(["primary_judge", "secondary_judge", "generation_baseline", "generation_candidate"]);
 
 export const providerBindingSchema = z.object({
-  provider: z.string().min(1), // "anthropic" | "openai" | "mock" | future vendors — not an enum, so new vendors don't need a schema migration
+  provider: z.string().min(1), // "anthropic" | "openai" | "gemini" | "mock" | future vendors — not an enum, so new vendors don't need a schema migration
   model: z.string().min(1),
   secretRef: z.string().min(1), // Secret Manager secret id (or env var name in local dev), never the raw key
 });

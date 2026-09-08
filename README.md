@@ -65,7 +65,7 @@ The Judge service owns its **own** Postgres database (`JUDGE_DATABASE_URL`), com
 Tables (see `migrations/0001_init.sql`, `migrations/0002_add_per_tag_results.sql`, and `migrations/0003_benchmark_dataset_and_generation_runs.sql` / `shared/schema.ts`):
 `eval_datasets`, `eval_dataset_subjects`, `eval_dataset_cases`, `eval_config_versions`, `eval_reference_runs`, `eval_reference_generations`, `eval_experiments`, `eval_jobs`, `eval_generation_runs`, `eval_generations`, `eval_deterministic_results`, `eval_judge_scores`, `eval_human_review_queue`, `eval_results_summaries`, `eval_audit_log`, `eval_idempotency_keys`.
 
-Apply migrations in order with `psql "$JUDGE_DATABASE_URL" -f migrations/0001_init.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0002_add_per_tag_results.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0003_benchmark_dataset_and_generation_runs.sql`, and `psql "$JUDGE_DATABASE_URL" -f migrations/0004_ground_truth_comparisons.sql`, or use `npm run db:push` (drizzle-kit push) against `shared/schema.ts`.
+Apply migrations in order with `psql "$JUDGE_DATABASE_URL" -f migrations/0001_init.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0002_add_per_tag_results.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0003_benchmark_dataset_and_generation_runs.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0004_ground_truth_comparisons.sql`, and `psql "$JUDGE_DATABASE_URL" -f migrations/0006_rebuild_artifacts.sql` (or `npm run db:phase0` for the Phase 0 migration). `npm run db:push` is also available for schema synchronization, but it may detect unrelated legacy drift; use the numbered migration for the Phase 0 tables.
 
 ## Configuration — nothing hardcoded
 

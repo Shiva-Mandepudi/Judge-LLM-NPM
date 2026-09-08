@@ -1,0 +1,21 @@
+# Source: docs/LLM PLAN/README.md#scope-the-17-tracks (track 2/17)
+track: natal_detailed
+label: "Natal Chart — Detailed"
+purpose: "Detailed interpretation of a user's natal chart."
+depth: detailed
+status: active
+
+datasource:
+  silver: { table: natalCharts, outputColumn: detailedInsight, userKey: userId }
+  challenger: { source: judge-service-generation }
+  input: { table: natalCharts, columns: [chartData, chartDetails] }
+
+renderer: natal
+strata: [chartComplexity, birthTimeKnown]
+rowsPerUser: 1
+
+prompt:
+  rubricPack: "docs/LLM PLAN/01-judge-prompt/rubric-packs/natal.md"
+
+sampling:
+  mode: stratified

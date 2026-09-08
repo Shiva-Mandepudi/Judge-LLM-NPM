@@ -22,11 +22,25 @@
   .toolbar { display:grid; grid-template-columns:minmax(220px,2fr) minmax(180px,1fr) minmax(110px,.6fr); gap:12px; align-items:end; }
   @media (max-width:800px) { .toolbar { grid-template-columns:1fr; } }
 </style>
+<link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-<main>
-  <div class="topbar"><div><p class="pill">PRIVATE EVALUATION SERVICE</p><h1>Dataset Users</h1><p>Browse every subject in a ground-truth dataset — profile, partner details, reading cases, gold outputs, frozen CG Standard references, and calculation artifacts. Read-only; no model request is made from this screen.</p></div><a href="/" onclick="sessionStorage.removeItem('judgeAdminSecret'); sessionStorage.removeItem('judgeAdminActor');">Sign out</a></div>
-  <nav class="nav"><a href="/admin/dashboard/index.html">Dashboard</a><a href="#browser">User browser</a></nav>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="index.html"><span class="brand-mark">✦</span><span>Judge LLM</span></a>
+    <button id="menu-button" class="mobile-menu secondary" aria-label="Open navigation">☰</button>
+    <p class="nav-label">Workspace</p>
+    <nav id="main-nav" class="nav">
+      <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
+      <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Experiments</span></a>
+      <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Datasets</span></a>
+      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>Dataset users</span></a>
+      <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
+    </nav>
+    <div class="sidebar-footer"><strong>Private service</strong>Evaluation artifacts only</div>
+  </aside>
+  <main class="main">
+  <header class="page-header"><div><p class="eyebrow">Workspace / dataset users</p><h1>Dataset users</h1><p class="lede">Browse subjects, related people, reading cases, ground truth, and calculation artifacts. Read-only; no model request is made from this screen.</p></div><div class="header-actions"><button id="sign-out" class="secondary">Sign out</button></div></header>
 
   <section id="browser"><h2>User browser</h2>
     <div class="toolbar">
@@ -39,17 +53,12 @@
     <div class="pager" id="pager"></div>
   </section>
 </main>
+</div>
+<script src="app.js"></script>
 <script>
 let datasetId = "", page = 1, pageSize = 20, total = 0, searchTimer = null;
 const subjectCache = new Map(), caseCache = new Map(), expandedSubjects = new Set();
-const $ = (id) => document.getElementById(id);
-const adminSecret = sessionStorage.getItem("judgeAdminSecret");
-if (!adminSecret) location.replace("/");
-function authFailed() { sessionStorage.removeItem("judgeAdminSecret"); sessionStorage.removeItem("judgeAdminActor"); location.replace("/"); }
-function headers() { return { "content-type":"application/json", "x-judge-admin-secret":adminSecret, "x-judge-actor":sessionStorage.getItem("judgeAdminActor") || "dashboard-user" }; }
-function esc(value) { return String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
-function pretty(value) { return esc(JSON.stringify(value, null, 2)); }
-function date(value) { return value ? new Date(value).toLocaleString() : "—"; }
+const { $, esc, pretty, date, api } = JudgeUI;
 // Some snapshot birth dates came from the Excel sheet as serial numbers
 // (e.g. 30456 = 1983-05-20); convert those to ISO dates for display.
 function fmtDate(value) {
@@ -60,8 +69,6 @@ function fmtDate(value) {
   }
   return value;
 }
-async function api(url, options = {}) { const response = await fetch(url, { ...options, headers: { ...headers(), ...(options.headers || {}) } }); if (response.status === 403) authFailed(); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.details || body.error || `HTTP ${response.status}`); return body; }
-
 async function init() {
   $("status").textContent = "Loading…";
   try {

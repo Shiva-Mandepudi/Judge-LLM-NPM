@@ -1,0 +1,24 @@
+# Schema: docs/LLM PLAN/03-build-plan/00-architecture-and-parametrization.md#configmodelsyaml
+# TODO values are unresolved per docs/REBUILD-PLAN.md §1.5 / config/blockers.yaml
+# (champion-model-confirmation). Do not fill them from guesswork — confirm with the
+# CosmicGuidance repo owner first.
+champion:
+  modelId: "TODO" # observed as "gpt-5.6-sol" in existing artifacts; not yet confirmed
+  label: "champion"
+
+challengers: []
+
+includeSilverAsBlindArm: false # policy decision 2026-09-08: no separate silver/gold reference — see config/blockers.yaml "numerology-silver-source"
+
+judge:
+  primary:
+    provider: "TODO" # must differ in vendor family from champion, challengers, and silver generator
+    modelId: "TODO"
+    effort: "high"
+    thinking: "adaptive"
+  secondary:
+    provider: "TODO" # cross-vendor, agreement subsample only
+    modelId: "TODO"
+    sampleRate: 0.10
+
+rates: {}
