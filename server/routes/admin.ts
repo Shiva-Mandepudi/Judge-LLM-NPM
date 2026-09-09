@@ -1,25 +1,28 @@
 import { Router } from "express";
 import { z } from "zod";
-import { desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, like } from "drizzle-orm";
 import { db } from "../db.js";
 import { publishConfigVersion, getActiveConfig } from "../config/config-service.js";
 import { judgeConfigSchema } from "../../shared/config-schema.js";
 import { registerDataset } from "../services/dataset-service.js";
 import { listPendingReviews, resolveReview } from "../services/human-review-service.js";
-import { evalAuditLog, evalDatasets, evalDatasetCases, evalReferenceRuns } from "../../shared/schema.js";
+import { evalAuditLog, evalDatasets, evalDatasetCases, evalDatasetOutputs, evalDatasetSubjects } from "../../shared/schema.js";
 
 export const adminRouter = Router();
 
 adminRouter.get("/datasets", async (_req, res) => {
   const datasets = await db.select().from(evalDatasets).orderBy(desc(evalDatasets.createdAt));
   const result = await Promise.all(datasets.map(async (dataset) => {
-    const cases = await db.select({ goldOutput: evalDatasetCases.goldOutput, promptVersion: evalDatasetCases.promptVersion }).from(evalDatasetCases).where(eq(evalDatasetCases.datasetId, dataset.id));
-    const referenceRuns = await db.select({ id: evalReferenceRuns.id, name: evalReferenceRuns.name, model: evalReferenceRuns.model, status: evalReferenceRuns.status, completedCount: evalReferenceRuns.completedCount, caseCount: evalReferenceRuns.caseCount }).from(evalReferenceRuns).where(eq(evalReferenceRuns.datasetId, dataset.id)).orderBy(desc(evalReferenceRuns.createdAt));
+    const [cases, subjects, outputs] = await Promise.all([
+      db.select({ promptVersion: evalDatasetCases.promptVersion }).from(evalDatasetCases).where(eq(evalDatasetCases.datasetId, dataset.id)).limit(1),
+      db.select({ value: count() }).from(evalDatasetSubjects).where(and(eq(evalDatasetSubjects.datasetId, dataset.id), like(evalDatasetSubjects.subjectKey, "cb-actor-%"))),
+      db.select({ value: count() }).from(evalDatasetOutputs).where(eq(evalDatasetOutputs.datasetId, dataset.id)),
+    ]);
     return {
       ...dataset,
-      groundTruthCount: cases.filter((row) => row.goldOutput !== null).length,
       promptVersion: cases[0]?.promptVersion ?? null,
-      referenceRuns,
+      actorUserCount: Number(subjects[0]?.value ?? 0),
+      currentReadingCount: Number(outputs[0]?.value ?? 0),
     };
   }));
   res.json({ datasets: result });

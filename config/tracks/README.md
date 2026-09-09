@@ -9,8 +9,9 @@ the rubric-pack pointer are copied from that table and from
 CosmicGuidance repo in `docs/REBUILD-PLAN.md` §1.4; anything not confirmed there is left out
 rather than guessed.
 
-All 17 are `status: active` as of 2026-09-08 — both blockers that used to gate 8 of
-them are now closed in `config/blockers.yaml`:
+Sixteen tracks are active and `zodiac_profile` is explicitly blocked as of 2026-09-09.
+The partner and numerology blockers that used to gate 8 of them are closed in
+`config/blockers.yaml`:
 
 - `synastry_*`, `composite_*`, `number_compatibility_*` — `partner-coverage-policy`
   closed after verifying `eval_dataset_cases` covers all 100 actors for these tracks
@@ -28,5 +29,7 @@ them are now closed in `config/blockers.yaml`:
 
 `server/core/config/loader.ts#loadTrackSpecs` cross-checks each file's `status` against
 `config/blockers.yaml` and throws if they disagree, so this list can't silently drift from the
-registry. This is config authoring only — the `Datasource`/`Renderer` adapter implementations
-that would actually read these tables do not exist yet (see `docs/REBUILD-PLAN.md` §8).
+registry. The rebuilt adapter reads the imported judge-service evaluation DB through the
+explicit `config/datasets.yaml` manifest. `my_day` and `static_scores` remain active registry
+entries but have no imported candidate rows, so materialization reports `NO RECOMMENDATION`
+for them instead of using a fixture or legacy dataset.

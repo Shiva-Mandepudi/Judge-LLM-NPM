@@ -1,7 +1,7 @@
 # Judge Service Rebuild Plan — Toward `docs/LLM PLAN`
 
-**Status:** Phases 0–3 implementation complete; live judge execution and human sign-off remain fail-closed pending approved run inputs.
-**Last reviewed:** 2026-09-08.
+**Status:** Phases 0–6 implementation complete; live judge execution and human sign-off remain fail-closed pending approved run inputs.
+**Last reviewed:** 2026-09-09.
 **Source of truth for design:** [`docs/LLM PLAN/`](./LLM%20PLAN/). This document does not
 restate rubric text, schemas, or statistical formulas that already exist there — it maps that
 plan onto **this repo's actual current state** and turns it into an ordered, checkable build
@@ -417,6 +417,25 @@ available for evaluation; provider independence still requires an explicit model
 ---
 
 ## 8. Changelog (phase gate sign-offs go here)
+
+- **2026-09-09 — prompt and dataset routing hardened.** Added the explicit production
+  dataset manifest (`config/datasets.yaml`), made materialization honor `config/run.yaml`'
+  selected tracks, and stopped unknown reading tracks from silently returning empty data.
+  The rebuilt evidence judge now loads the rubric pack from the payload's configured track
+  and refuses stale, unconfirmed, or blocker-covered dataset manifests. No legacy prompt or
+  local fixture dataset is used by this path; missing production coverage remains
+  `NO RECOMMENDATION`.
+
+- **2026-09-09 — Phases 4–6 implementation complete; live execution gates intentionally
+  fail closed.** Generalized rubric/prompt assembly across all 17 tracks, added the
+  machine-readable 31-key supplementary metric register, and added deterministic checks
+  for tarot card orientation, My Day dates/astronomy/activity contracts, chart aspect and
+  house claims, compatibility score/prose coherence, static-score exact values/coverage,
+  and zodiac sign facts/unknown-celebrity abstention. Added `npm run phase456:verify`, which
+  passes planted-defect checks for the Phase 4–6 gates. The external champion model,
+  production corpus reconciliation, and CosmicGuidance zodiac router verification remain
+  open, so no paid run or all-17-track recommendation is fabricated; `zodiac_profile` is
+  explicitly blocked until its external route is verified.
 
 - **2026-09-08 — production cleanup pass.** Removed three unreferenced one-off scripts
   (`scripts/_cb001-cost-aggregate.ts`, `scripts/_check-latest-batch-error.ts`, and

@@ -14,30 +14,30 @@
     <p class="nav-label">Workspace</p>
     <nav id="main-nav" class="nav">
       <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
-      <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Experiments</span></a>
-      <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Datasets</span></a>
-      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>Dataset users</span></a>
+      <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Comparisons &amp; runs</span></a>
+      <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Dataset</span></a>
+      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>100 users</span></a>
       <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
     </nav>
     <div class="sidebar-footer"><strong>Private service</strong>Evaluation artifacts only</div>
   </aside>
   <main class="main">
     <header class="page-header">
-      <div><p class="eyebrow">Evaluation workspace</p><h1>Overview</h1><p class="lede">A calm starting point for model comparisons, dataset health, and operator follow-up.</p></div>
-      <div class="header-actions"><a class="secondary" href="experiments.html">Start comparison</a><button id="sign-out" class="secondary">Sign out</button></div>
+      <div><p class="eyebrow">Evaluation workspace</p><h1>Overview</h1><p class="lede">Create a model comparison, run it for users, and inspect every generated reading in its run report.</p></div>
+      <div class="header-actions"><a class="secondary" href="experiments.html">Comparisons &amp; runs</a><button id="sign-out" class="secondary">Sign out</button></div>
     </header>
 
     <section class="cards">
-      <div class="card"><span class="card-label">Datasets</span><strong id="stat-datasets" class="card-value">—</strong><span class="card-note">Versioned ground truth</span></div>
-      <div class="card"><span class="card-label">Experiments</span><strong id="stat-experiments" class="card-value">—</strong><span class="card-note">All comparison runs</span></div>
-      <div class="card"><span class="card-label">Completed cases</span><strong id="stat-completed" class="card-value">—</strong><span class="card-note">Across latest results</span></div>
+      <div class="card"><span class="card-label">Dataset users</span><strong id="stat-users" class="card-value">100</strong><span class="card-note">Fixed actor subjects</span></div>
+      <div class="card"><span class="card-label">Comparisons</span><strong id="stat-comparisons" class="card-value">—</strong><span class="card-note">Reusable model choices</span></div>
+      <div class="card"><span class="card-label">Runs</span><strong id="stat-runs" class="card-value">—</strong><span class="card-note">User-level executions</span></div>
       <div class="card"><span class="card-label">Review queue</span><strong id="stat-reviews" class="card-value">—</strong><span class="card-note">Needs operator attention</span></div>
     </section>
 
     <div class="grid-2">
       <section class="panel">
-        <div class="panel-header"><div><h2>Recent experiments</h2><p class="hint">Open an experiment to enqueue cases, compute results, or inspect evidence.</p></div><a href="experiments.html">View all</a></div>
-        <div class="table-wrap"><table><thead><tr><th>Name</th><th>Model</th><th>Status</th><th>Created</th></tr></thead><tbody id="recent-experiments"></tbody></table></div>
+        <div class="panel-header"><div><h2>Recent runs</h2><p class="hint">Open a run to see its report and generated readings.</p></div><a href="experiments.html">View all</a></div>
+        <div class="table-wrap"><table><thead><tr><th>Comparison</th><th>Model</th><th>Coverage</th><th>Status</th></tr></thead><tbody id="recent-runs"></tbody></table></div>
       </section>
       <section class="panel">
         <div class="panel-header"><div><h2>Operator status</h2><p class="hint">The queue is the single place for human decisions.</p></div></div>
@@ -49,9 +49,9 @@
     <section class="panel">
       <div class="panel-header"><div><h2>Use the workspace</h2><p class="hint">Each destination owns one job so the dashboard stays easy to scan.</p></div></div>
       <div class="grid-2">
-        <div class="callout"><strong>Experiments</strong><br />Create and operate comparisons, then inspect case-level reports.</div>
-        <div class="callout"><strong>Datasets</strong><br />Check immutable inputs and browse stored benchmark outputs.</div>
-        <div class="callout"><strong>Dataset users</strong><br />Search subjects and their reading cases without leaving the service.</div>
+        <div class="callout"><strong>Comparisons &amp; runs</strong><br />Choose a model, select users, and open the run report.</div>
+        <div class="callout"><strong>Dataset</strong><br />Inspect the fixed 100-user input and preserved current readings.</div>
+        <div class="callout"><strong>100 users</strong><br />Browse each subject and its reading cases.</div>
         <div class="callout"><strong>Reviews &amp; settings</strong><br />Resolve hard-gate decisions and manage judge configuration.</div>
       </div>
     </section>
@@ -63,22 +63,19 @@ const { $, esc, date, api } = JudgeUI;
 
 async function loadOverview() {
   try {
-    const [datasetsResponse, experimentsResponse, reviewsResponse] = await Promise.all([
-      api("/api/admin/datasets"),
-      api("/api/admin/experiments"),
+    const [comparisonResponse, runsResponse, reviewsResponse] = await Promise.all([
+      api("/api/admin/comparisons"),
+      api("/api/admin/runs"),
       api("/api/admin/human-review")
     ]);
-    const datasets = datasetsResponse.datasets || [];
-    const experiments = experimentsResponse.experiments || [];
+    const comparisons = comparisonResponse.comparisons || [];
+    const runs = runsResponse.runs || [];
     const reviews = reviewsResponse.reviews || [];
-    const resultSets = await Promise.all(experiments.map((experiment) => api(`/api/admin/experiments/${experiment.id}/results`)));
-    const latest = resultSets.map((response) => (response.results || []).at(-1)).filter(Boolean);
-    $("stat-datasets").textContent = datasets.length;
-    $("stat-experiments").textContent = experiments.length;
-    $("stat-completed").textContent = latest.reduce((total, result) => total + Number(result.sampleSize || 0), 0);
+    $("stat-comparisons").textContent = comparisons.length;
+    $("stat-runs").textContent = runs.length;
     $("stat-reviews").textContent = reviews.length;
-    const recent = [...experiments].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 8);
-    $("recent-experiments").innerHTML = recent.map((experiment) => `<tr><td><a href="experiments.html?id=${encodeURIComponent(experiment.id)}"><strong>${esc(experiment.name)}</strong></a><br><span class="muted">${esc(experiment.track)}</span></td><td>${esc(experiment.candidateModel)}</td><td><span class="pill">${esc(experiment.status)}</span></td><td>${date(experiment.createdAt)}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">No experiments yet. Start the first comparison.</td></tr>';
+    const recent = [...runs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 8);
+    $("recent-runs").innerHTML = recent.map((run) => `<tr><td><a href="experiments.html?run=${encodeURIComponent(run.id)}"><strong>${esc(run.comparison?.name || "Unnamed comparison")}</strong></a></td><td>${esc(run.comparison?.candidateModel || "—")}</td><td>${run.completedCases + run.failedCases}/${run.requestedCases}</td><td><span class="pill">${esc(run.status)}</span></td></tr>`).join("") || '<tr><td colspan="4" class="empty">No runs yet. Create a comparison and start a run.</td></tr>';
     $("status-summary").innerHTML = reviews.length ? `<strong>${reviews.length} item${reviews.length === 1 ? "" : "s"} need review.</strong><br>Resolve them before treating a comparison as operationally complete.` : "<strong>Review queue is clear.</strong><br>No pending human decisions are waiting.";
   } catch (error) {
     $("status-summary").className = "callout error";

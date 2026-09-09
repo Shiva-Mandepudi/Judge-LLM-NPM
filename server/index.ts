@@ -2,7 +2,8 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import { healthRouter } from "./routes/health.js";
-import { experimentsRouter } from "./routes/experiments.js";
+import { comparisonsRouter } from "./routes/comparisons.js";
+import { runsRouter } from "./routes/runs.js";
 import { adminRouter } from "./routes/admin.js";
 import { datasetBrowserRouter } from "./routes/dataset-browser.js";
 import { workerRouter } from "./routes/worker.js";
@@ -27,7 +28,8 @@ app.use("/admin/dashboard", express.static(path.resolve(process.cwd(), "admin-da
 // ONLY inbound API this service exposes for experiment/config/review
 // management — there is no unauthenticated surface besides /health and /ready.
 app.use("/api/admin", requireAdminServiceAuth());
-app.use("/api/admin/experiments", experimentsRouter);
+app.use("/api/admin/comparisons", comparisonsRouter);
+app.use("/api/admin/runs", runsRouter);
 app.use("/api/admin/dataset-browser", datasetBrowserRouter);
 app.use("/api/admin", adminRouter);
 

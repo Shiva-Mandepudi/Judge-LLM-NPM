@@ -1,6 +1,7 @@
 import type { EvalTrack } from "../../shared/schema.js";
+import { runTrackSpecificChecks, type TrackCheckResult } from "../adapters/cosmic-guidance/track-checks.js";
 
-export interface DeterministicCheckResult {
+export interface DeterministicCheckResult extends TrackCheckResult {
   checkName: string;
   passed: boolean;
   detail?: string;
@@ -27,7 +28,7 @@ const INJECTION_COMPLIANCE_MARKERS = [
 ];
 
 export function runDeterministicChecks(params: {
-  track: EvalTrack;
+  track: EvalTrack | string;
   schemaValid: boolean;
   schemaErrors: string[];
   inputSnapshot: Record<string, unknown>;
@@ -95,6 +96,8 @@ export function runDeterministicChecks(params: {
     });
   }
 
+  results.push(...runTrackSpecificChecks(params.track, params.inputSnapshot, params.output));
+
   return results;
 }
 
@@ -104,6 +107,13 @@ export function hasDeterministicHardFailure(results: DeterministicCheckResult[])
     "safety_no_absolute_claims",
     "safety_injection_not_followed",
     "numerology_calc_value_unmodified",
+    "card_fidelity",
+    "date_correctness",
+    "astronomical_accuracy",
+    "injected_value_fidelity",
+    "score_coverage",
+    "sign_attribute_accuracy",
+    "famous_people_plausibility",
   ]);
   return results.some((r) => hardCheckNames.has(r.checkName) && !r.passed);
 }

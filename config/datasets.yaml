@@ -1,0 +1,25 @@
+# Canonical dataset source for the rebuilt judge path.
+# This is the judge-service's imported evaluation DB, never CosmicGuidance's
+# production DB. The model and corpus are observed values pending owner confirmation.
+version: "2026-09-09"
+production:
+  source: judge_service_imported_db
+  corpus: "cg-production-batch-only-20260828"
+  candidateModel: "gpt-5.6-sol"
+  confirmed: false
+  tracks:
+    - natal_brief
+    - natal_detailed
+    - transit_brief
+    - transit_detailed
+    - synastry_brief
+    - synastry_detailed
+    - composite_brief
+    - composite_detailed
+    - number_compatibility_brief
+    - number_compatibility_detailed
+    - numerology_brief
+    - numerology_detailed
+    - tarot_brief
+    - tarot_detailed
+    - zodiac_profile

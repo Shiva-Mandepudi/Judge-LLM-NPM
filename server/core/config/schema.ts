@@ -54,6 +54,32 @@ export const thresholdsConfigSchema = z.object({
 });
 export type ThresholdsConfig = z.infer<typeof thresholdsConfigSchema>;
 
+const metricRegisterEntrySchema = z.object({
+  key: z.string().min(1),
+  class: z.enum(["factual", "structural", "quality"]),
+  gate: z.enum(["hard", "soft"]),
+});
+const supplementaryMetricSchema = metricRegisterEntrySchema.extend({ tracks: z.array(z.string().min(1)).min(1) });
+export const metricsConfigSchema = z.object({
+  version: z.string().min(1),
+  universal: z.array(metricRegisterEntrySchema).length(8),
+  supplementary: z.array(supplementaryMetricSchema),
+});
+export type MetricsConfig = z.infer<typeof metricsConfigSchema>;
+
+export const datasetSourceSchema = z.object({
+  source: z.literal("judge_service_imported_db"),
+  corpus: z.string().min(1),
+  candidateModel: z.string().min(1),
+  confirmed: z.boolean(),
+  tracks: z.array(z.string().min(1)).min(1),
+});
+export const datasetsConfigSchema = z.object({
+  version: z.string().min(1),
+  production: datasetSourceSchema,
+});
+export type DatasetsConfig = z.infer<typeof datasetsConfigSchema>;
+
 export const runConfigSchema = z.object({
   runId: z.string().min(1),
   users: z.number().int().positive(),

@@ -32,15 +32,15 @@
     <p class="nav-label">Workspace</p>
     <nav id="main-nav" class="nav">
       <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
-      <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Experiments</span></a>
+      <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Comparisons &amp; runs</span></a>
       <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Datasets</span></a>
-      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>Dataset users</span></a>
+      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>100 users</span></a>
       <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
     </nav>
     <div class="sidebar-footer"><strong>Private service</strong>Evaluation artifacts only</div>
   </aside>
   <main class="main">
-  <header class="page-header"><div><p class="eyebrow">Workspace / dataset users</p><h1>Dataset users</h1><p class="lede">Browse subjects, related people, reading cases, ground truth, and calculation artifacts. Read-only; no model request is made from this screen.</p></div><div class="header-actions"><button id="sign-out" class="secondary">Sign out</button></div></header>
+  <header class="page-header"><div><p class="eyebrow">Workspace / dataset users</p><h1>100 dataset users</h1><p class="lede">Browse the fixed corpus, its reading inputs, preserved current readings, comparison-run outputs, and calculation artifacts. Read-only; no model request is made from this screen.</p></div><div class="header-actions"><button id="sign-out" class="secondary">Sign out</button></div></header>
 
   <section id="browser"><h2>User browser</h2>
     <div class="toolbar">
@@ -162,7 +162,7 @@ function subjectBody(data) {
     <p class="group-title">${esc(type)} (${list.length})</p>
     ${list.map((c) => `
       <details class="case-row" data-case="${c.caseId}" ontoggle="caseToggled(this)">
-        <summary><strong>${esc(c.readingSubtype || "—")}</strong> <span class="muted">${esc(c.caseKey)}</span> ${c.hasGold ? '<span class="pill">gold</span>' : ""} ${(c.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join(" ")}</summary>
+        <summary><strong>${esc(c.readingSubtype || "—")}</strong> <span class="muted">${esc(c.caseKey)}</span> ${(c.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join(" ")}</summary>
         <div id="case-${c.caseId}"><p class="hint">Loading…</p></div>
       </details>`).join("")}`).join("");
   return `
@@ -212,15 +212,16 @@ function generationPanel(label, g) {
 function caseBody(data) {
   const c = data.case;
   const references = (data.references || []).map((g) => generationPanel(`CG Standard reference · ${g.executionMode}`, g)).join("");
-  const outputs = (data.outputs || []).map((g) => generationPanel(`Output · ${g.experiment?.name || g.executionMode}`, g)).join("");
+  const current = data.currentOutput ? generationPanel(`Current dataset reading · ${data.currentOutput.model}`, data.currentOutput) : "";
+  const outputs = (data.outputs || []).map((g) => generationPanel(`Run output · ${g.run?.comparison?.name || g.executionMode}`, g)).join("");
   const artifacts = (data.artifacts || []).map((a) => `<details><summary>Artifact · ${esc(a.artifactType)} <span class="muted">${esc((a.outputChecksum || "").slice(0, 12))}</span></summary><pre>${pretty(a.outputSnapshot)}</pre></details>`).join("");
   return `
     <p class="hint">${esc(c.key)} · prompt ${esc(c.promptVersion || "—")}${c.calculatorVersion ? ` · calc ${esc(c.calculatorVersion)}` : ""} · subject ${esc(c.subjectKey || "—")}</p>
     <details><summary>Input snapshot (calc outputs sent to the model)</summary><pre>${pretty(c.inputSnapshot)}</pre></details>
     ${c.provenance ? `<details><summary>Provenance</summary><pre>${pretty(c.provenance)}</pre></details>` : ""}
-    ${data.goldOutput ? `<details open><summary><strong>Gold output (dataset ground truth)</strong></summary><pre>${pretty(data.goldOutput)}</pre></details>` : '<p class="hint">No embedded gold output on this case.</p>'}
+    ${current || '<p class="hint">No preserved current reading on this case.</p>'}
     ${references || '<p class="hint">No frozen CG Standard reference for this case.</p>'}
-    ${outputs || '<p class="hint">No experiment outputs stored for this case.</p>'}
+    ${outputs || '<p class="hint">No comparison-run outputs stored for this case.</p>'}
     ${artifacts ? `<h3>Calculation artifacts</h3>${artifacts}` : ""}`;
 }
 init();

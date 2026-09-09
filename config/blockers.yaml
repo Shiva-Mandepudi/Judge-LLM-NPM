@@ -64,3 +64,12 @@ blockers:
       artifacts/batches/cg-production-batch-only-20260828/ has not been confirmed
       reconciled/imported by the CosmicGuidance repo owner, and its actual
       track/depth coverage is unverified beyond the 2,526-request manifest count.
+
+  - id: zodiac-router-verification
+    status: open
+    blocks: ["tracks.zodiac_profile"]
+    reason: >
+      The CosmicGuidance router path for zodiac_profile must be re-verified by the
+      CosmicGuidance owner before challenger-arm generation is activated. The cited
+      bypass could not be reproduced from this repository, so the Judge service fails
+      closed instead of assuming the route is safe.

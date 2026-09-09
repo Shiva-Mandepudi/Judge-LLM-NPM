@@ -108,12 +108,57 @@ export const evalExperiments = pgTable("eval_experiments", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// A comparison is reusable configuration; a run is one execution of it over
+// selected dataset subjects. Keeping these separate prevents one comparison
+// with 100 users from becoming an unreadable list of unrelated jobs.
+export const comparisonRunStatuses = ["queued", "running", "completed", "failed", "cancelled"] as const;
+export type ComparisonRunStatus = (typeof comparisonRunStatuses)[number];
+
+export const evalComparisonRuns = pgTable("eval_comparison_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  comparisonId: uuid("comparison_id").notNull().references(() => evalExperiments.id),
+  datasetId: uuid("dataset_id").notNull().references(() => evalDatasets.id),
+  status: text("status").notNull().default("queued"),
+  userKeys: jsonb("user_keys").$type<string[]>().notNull().default([]),
+  readingTypes: jsonb("reading_types").$type<string[]>().notNull().default([]),
+  requestedCases: integer("requested_cases").notNull().default(0),
+  completedCases: integer("completed_cases").notNull().default(0),
+  failedCases: integer("failed_cases").notNull().default(0),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (t) => ({
+  comparisonIdx: index("eval_comparison_runs_comparison_idx").on(t.comparisonId, t.createdAt),
+  datasetIdx: index("eval_comparison_runs_dataset_idx").on(t.datasetId),
+}));
+
+// Current generated readings belong to the immutable dataset, not to a user
+// comparison run. This preserves the 100-user corpus when old runs are cleaned.
+export const evalDatasetOutputs = pgTable("eval_dataset_outputs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  datasetId: uuid("dataset_id").notNull().references(() => evalDatasets.id),
+  caseId: uuid("case_id").notNull().references(() => evalDatasetCases.id),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  rawOutput: jsonb("raw_output"),
+  parsedOutput: jsonb("parsed_output"),
+  schemaValid: boolean("schema_valid").notNull().default(false),
+  usage: jsonb("usage"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  datasetCaseUnique: unique().on(t.datasetId, t.caseId),
+  datasetIdx: index("eval_dataset_outputs_dataset_idx").on(t.datasetId),
+}));
+
 export const jobStatuses = ["pending", "generating", "checking", "judging", "completed", "failed"] as const;
 export type JobStatus = (typeof jobStatuses)[number];
 
 export const evalJobs = pgTable("eval_jobs", {
   id: uuid("id").primaryKey().defaultRandom(),
   experimentId: uuid("experiment_id").notNull().references(() => evalExperiments.id),
+  runId: uuid("run_id").references(() => evalComparisonRuns.id),
   caseId: uuid("case_id").notNull().references(() => evalDatasetCases.id),
   idempotencyKey: text("idempotency_key").notNull().unique(),
   status: text("status").notNull().default("pending"),

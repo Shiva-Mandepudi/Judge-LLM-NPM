@@ -1,0 +1,47 @@
+# Authoritative track-metric register from docs/LLM PLAN/02-metric-suite/01-reading-specific-metrics.md.
+# Prompt prose remains byte-for-byte in docs/LLM PLAN; this file makes assignment and gate
+# counts machine-checkable without making the runtime prompt a hand-edited copy.
+version: metrics-2026.1
+
+universal:
+  - { key: input_grounding, class: factual, gate: hard, composite: false }
+  - { key: safety_compliance, class: factual, gate: hard, composite: false }
+  - { key: structural_completeness, class: structural, gate: hard, composite: false }
+  - { key: personalization, class: quality, gate: soft, composite: true }
+  - { key: internal_consistency, class: quality, gate: soft, composite: true }
+  - { key: voice_alignment, class: quality, gate: soft, composite: true }
+  - { key: usefulness, class: quality, gate: soft, composite: true }
+  - { key: language_quality, class: quality, gate: soft, composite: true }
+
+supplementary:
+  - { key: aspect_coverage, class: quality, gate: soft, tracks: [natal_brief, natal_detailed] }
+  - { key: house_domain_accuracy, class: quality, gate: soft, tracks: [natal_brief, natal_detailed] }
+  - { key: transit_timing_relevance, class: quality, gate: soft, tracks: [transit_brief, transit_detailed, my_day] }
+  - { key: transit_natal_distinction, class: quality, gate: soft, tracks: [transit_brief, transit_detailed] }
+  - { key: timing_specificity, class: quality, gate: soft, tracks: [transit_brief, transit_detailed] }
+  - { key: bidirectional_fairness, class: quality, gate: soft, tracks: [synastry_brief, synastry_detailed] }
+  - { key: score_narrative_coherence, class: quality, gate: soft, tracks: [synastry_brief, synastry_detailed, composite_brief, composite_detailed, number_compatibility_brief, number_compatibility_detailed] }
+  - { key: challenge_honesty, class: quality, gate: soft, tracks: [synastry_brief, synastry_detailed, composite_brief, composite_detailed] }
+  - { key: union_entity_framing, class: quality, gate: soft, tracks: [composite_brief, composite_detailed] }
+  - { key: canonical_meaning_fidelity, class: factual, gate: hard, tracks: [number_compatibility_brief, number_compatibility_detailed, numerology_brief, numerology_detailed] }
+  - { key: master_number_handling, class: factual, gate: hard, tracks: [number_compatibility_brief, number_compatibility_detailed, numerology_brief, numerology_detailed] }
+  - { key: number_pair_fidelity, class: quality, gate: soft, tracks: [number_compatibility_brief, number_compatibility_detailed] }
+  - { key: number_type_discipline, class: quality, gate: soft, tracks: [numerology_brief, numerology_detailed] }
+  - { key: year_anchoring, class: quality, gate: soft, tracks: [numerology_brief, numerology_detailed] }
+  - { key: card_fidelity, class: factual, gate: hard, tracks: [tarot_brief, tarot_detailed] }
+  - { key: position_semantics, class: quality, gate: soft, tracks: [tarot_brief, tarot_detailed] }
+  - { key: spread_coherence, class: quality, gate: soft, tracks: [tarot_brief, tarot_detailed] }
+  - { key: question_responsiveness, class: quality, gate: soft, tracks: [tarot_brief, tarot_detailed] }
+  - { key: date_correctness, class: factual, gate: hard, tracks: [my_day] }
+  - { key: astronomical_accuracy, class: factual, gate: hard, tracks: [my_day] }
+  - { key: cross_section_coherence, class: quality, gate: soft, tracks: [my_day] }
+  - { key: activity_validity, class: structural, gate: soft, tracks: [my_day] }
+  - { key: numerology_day_integration, class: quality, gate: soft, tracks: [my_day] }
+  - { key: injected_value_fidelity, class: factual, gate: hard, tracks: [static_scores] }
+  - { key: score_coverage, class: structural, gate: hard, tracks: [static_scores] }
+  - { key: value_type_correctness, class: structural, gate: soft, tracks: [static_scores] }
+  - { key: score_interpretation_alignment, class: quality, gate: soft, tracks: [static_scores] }
+  - { key: sign_attribute_accuracy, class: factual, gate: hard, tracks: [zodiac_profile] }
+  - { key: famous_people_plausibility, class: factual, gate: hard, tracks: [zodiac_profile] }
+  - { key: archetype_coherence, class: quality, gate: soft, tracks: [zodiac_profile] }
+  - { key: cultural_care, class: quality, gate: soft, tracks: [zodiac_profile] }

@@ -12,7 +12,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { pool } from "../../db.js";
-import { isBlocked, loadBlockers, loadRunConfig, loadTrackSpecs } from "../../core/config/loader.js";
+import { isBlocked, loadBlockers, loadDatasetsConfig, loadRunConfig, loadTrackSpecs } from "../../core/config/loader.js";
 import type { Row } from "../../core/contracts/rendered-content.js";
 import { materializeRows, rowsJsonl } from "../../core/pipeline/materialize.js";
 import { cosmicGuidanceDatasource } from "./datasource.js";
@@ -20,7 +20,8 @@ import { persistPhase0Artifacts } from "./artifact-store.js";
 
 const CONFIG_DIR = path.resolve(import.meta.dirname, "../../../config");
 const MODEL_REF = "arm-0";
-const OBSERVED_MODEL = "gpt-5.6-sol"; // see datasource.ts CANDIDATE_MODEL
+const DATASET_CONFIG = loadDatasetsConfig(CONFIG_DIR);
+const OBSERVED_MODEL = DATASET_CONFIG.production.candidateModel;
 
 export { loadStatusOf, rowId } from "../../core/pipeline/materialize.js";
 
@@ -55,7 +56,12 @@ function hash(value: string): string {
 // of the full ~100 — several tracks take real minutes at full scale (see track-map.ts).
 export async function materialize(runId: string, users?: string[]) {
   const blockers = loadBlockers(CONFIG_DIR);
-  const tracks = loadTrackSpecs(CONFIG_DIR, blockers).filter((t) => t.status === "active");
+  const runConfig = loadRunConfig(CONFIG_DIR);
+  const configuredTracks = loadTrackSpecs(CONFIG_DIR, blockers);
+  const configuredKeys = new Set(configuredTracks.map((track) => track.track));
+  const unknownRunTracks = runConfig.tracks.filter((track) => !configuredKeys.has(track));
+  if (unknownRunTracks.length > 0) throw new Error(`run.yaml selects unknown tracks: ${unknownRunTracks.join(", ")}`);
+  const tracks = configuredTracks.filter((t) => t.status === "active" && runConfig.tracks.includes(t.track));
   const provenance = {
     championModelConfirmed: !isBlocked("models.champion", blockers),
     productionCorpusConfirmed: !isBlocked("datasource.production-batch-corpus", blockers),
@@ -72,7 +78,6 @@ export async function materialize(runId: string, users?: string[]) {
   const rowsText = rowsJsonl(rows);
   const coverageText = JSON.stringify({ runId, users: resolvedUsers.length, tracks: coverage }, null, 2) + "\n";
   const modelMapText = JSON.stringify({ [MODEL_REF]: OBSERVED_MODEL }, null, 2) + "\n";
-  const runConfig = loadRunConfig(CONFIG_DIR);
   const manifest = {
     version: 1,
     runId,
@@ -80,11 +85,12 @@ export async function materialize(runId: string, users?: string[]) {
     rowCount: rows.length,
     userCount: resolvedUsers.length,
     tracks: coverage,
+    dataset: DATASET_CONFIG.production,
     artifacts: { rowsSha256: hash(rowsText), coverageSha256: hash(coverageText) },
     provenance,
   };
   await persistPhase0Artifacts(runId, rows, MODEL_REF, OBSERVED_MODEL, hash(modelMapText), {
-    configSnapshot: { run: runConfig, tracks, blockers },
+    configSnapshot: { run: runConfig, datasets: DATASET_CONFIG, tracks, blockers },
     promptHashes: Object.fromEntries(await Promise.all(tracks.map(async (track) => [
       track.track,
       hash(await readFile(path.resolve(import.meta.dirname, "../../../", track.prompt.rubricPack), "utf8")),

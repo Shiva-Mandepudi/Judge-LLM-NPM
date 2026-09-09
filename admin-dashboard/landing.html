@@ -13,7 +13,7 @@
 </head>
 <body><main>
   <div class="eyebrow">PRIVATE INTERNAL TOOL</div><h1>Judge LLM</h1>
-  <p>Evaluate which model produces the strongest Cosmic Guidance readings. The Judge service uses the versioned ground-truth dataset, asks the configured judge model to compare readings, and reports the result as a percentage.</p>
+  <p>Compare candidate models against the fixed 100-user Cosmic Guidance corpus. Each comparison is reusable, each run is a separate execution, and every run keeps a readable current-versus-generated report.</p>
   <div id="signed-in" style="display:none"><p>You are signed in as <strong id="signed-in-actor"></strong>.</p><button onclick="continueToDashboard()">Continue to dashboard →</button> <a href="#" onclick="signOut(); return false;">Sign out</a></div>
   <div id="sign-in">
     <label for="secret">Admin shared secret</label><input id="secret" type="password" autocomplete="off" placeholder="x-judge-admin-secret" />

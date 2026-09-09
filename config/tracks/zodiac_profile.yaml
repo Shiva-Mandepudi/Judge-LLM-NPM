@@ -6,7 +6,8 @@
 track: zodiac_profile
 label: "Zodiac Profile"
 purpose: "Interpretation of a user's zodiac profile."
-status: active
+status: blocked
+blockedReason: zodiac-router-verification
 
 datasource:
   silver: { table: userZodiacProfiles, outputColumn: zodiacInsights, userKey: userId }

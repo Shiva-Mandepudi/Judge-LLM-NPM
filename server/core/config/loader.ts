@@ -4,12 +4,16 @@ import { parse as parseYaml } from "yaml";
 import {
   type Blocker,
   type BlockersConfig,
+  type DatasetsConfig,
   type ModelsConfig,
+  type MetricsConfig,
   type RunConfig,
   type ThresholdsConfig,
   type TrackSpec,
   blockersConfigSchema,
+  datasetsConfigSchema,
   modelsConfigSchema,
+  metricsConfigSchema,
   runConfigSchema,
   thresholdsConfigSchema,
   trackSpecSchema,
@@ -28,6 +32,14 @@ export function loadModelsConfig(configDir: string): ModelsConfig {
 
 export function loadThresholdsConfig(configDir: string): ThresholdsConfig {
   return thresholdsConfigSchema.parse(loadYaml(configDir, "thresholds.yaml"));
+}
+
+export function loadMetricsConfig(configDir: string): MetricsConfig {
+  return metricsConfigSchema.parse(loadYaml(configDir, "metrics.yaml"));
+}
+
+export function loadDatasetsConfig(configDir: string): DatasetsConfig {
+  return datasetsConfigSchema.parse(loadYaml(configDir, "datasets.yaml"));
 }
 
 export function loadRunConfig(configDir: string): RunConfig {

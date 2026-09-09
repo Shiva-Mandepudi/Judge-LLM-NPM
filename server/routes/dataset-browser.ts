@@ -34,6 +34,7 @@ function generationDetail(row: Row) {
   const providerMetadata = metadata(row.provider_metadata);
   return {
     generationId: row.id,
+    arm: row.arm,
     referenceRunId: row.reference_run_id,
     executionMode: row.execution_mode,
     provider: row.provider,
@@ -51,6 +52,32 @@ function generationDetail(row: Row) {
     responseCharacterCount: row.response_character_count,
     startedAt: row.started_at,
     completedAt: row.completed_at,
+  };
+}
+
+function datasetOutputDetail(row: Row) {
+  const outputUsage = metadata(row.usage);
+  return {
+    generationId: row.id,
+    arm: "baseline",
+    executionMode: "dataset_current",
+    provider: row.provider,
+    model: row.model,
+    promptVersion: row.prompt_version,
+    schemaValid: row.schema_valid,
+    error: null,
+    usage: {
+      promptTokens: outputUsage.promptTokens ?? outputUsage.prompt_tokens,
+      completionTokens: outputUsage.completionTokens ?? outputUsage.completion_tokens,
+      cachedTokens: outputUsage.cachedTokens ?? outputUsage.cached_tokens,
+      reasoningTokens: outputUsage.reasoningTokens ?? outputUsage.reasoning_tokens,
+      totalTokens: outputUsage.totalTokens ?? outputUsage.total_tokens,
+      latencyMs: outputUsage.latencyMs ?? outputUsage.latency_ms,
+      costUsd: outputUsage.costUsd ?? outputUsage.cost_usd,
+    },
+    parsedOutput: row.parsed_output,
+    rawOutput: row.raw_output,
+    createdAt: row.created_at,
   };
 }
 
@@ -191,8 +218,8 @@ datasetBrowserRouter.get("/subjects/:subjectId", async (req, res) => {
   });
 });
 
-// Full case evidence: input snapshot, gold output, frozen CG reference
-// generations, and the deterministic calculation artifacts for the case.
+// Full case evidence: input snapshot, preserved current reading, comparison
+// run outputs, and deterministic calculation artifacts for the case.
 datasetBrowserRouter.get("/cases/:caseId", async (req, res) => {
   if (!z.string().uuid().safeParse(req.params.caseId).success) {
     res.status(400).json({ error: "invalid_case_id" });
@@ -212,18 +239,28 @@ datasetBrowserRouter.get("/cases/:caseId", async (req, res) => {
     return;
   }
   const row = caseResult.rows[0] as Row;
-  const [referencesResult, outputsResult, artifactsResult] = await Promise.all([
+  const [referencesResult, currentResult, outputsResult, artifactsResult] = await Promise.all([
     pool.query(
       "SELECT * FROM eval_reference_generations WHERE case_id = $1 ORDER BY created_at",
       [req.params.caseId],
     ),
     pool.query(
-      `SELECT g.*, e.id AS experiment_id, e.name AS experiment_name
+      `SELECT * FROM eval_dataset_outputs
+        WHERE case_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [req.params.caseId],
+    ),
+    pool.query(
+      `SELECT g.*, r.id AS run_id, r.status AS run_status,
+              e.id AS comparison_id, e.name AS comparison_name,
+              e.candidate_model AS comparison_model
          FROM eval_generations g
          JOIN eval_jobs j ON j.id = g.job_id
-         JOIN eval_experiments e ON e.id = j.experiment_id
-        WHERE j.case_id = $1
-        ORDER BY e.created_at, g.created_at`,
+         JOIN eval_comparison_runs r ON r.id = j.run_id
+         JOIN eval_experiments e ON e.id = r.comparison_id
+        WHERE j.case_id = $1 AND j.run_id IS NOT NULL
+        ORDER BY r.created_at, g.created_at`,
       [req.params.caseId],
     ),
     pool.query(
@@ -246,11 +283,15 @@ datasetBrowserRouter.get("/cases/:caseId", async (req, res) => {
       provenance: row.provenance,
       subjectKey: row.subject_key,
     },
-    goldOutput: row.gold_output ?? null,
+    currentOutput: currentResult.rows[0] ? datasetOutputDetail(currentResult.rows[0] as Row) : null,
     references: (referencesResult.rows as Row[]).map(generationDetail),
     outputs: (outputsResult.rows as Row[]).map((generation) => ({
       ...generationDetail(generation),
-      experiment: { id: generation.experiment_id, name: generation.experiment_name },
+      run: {
+        id: generation.run_id,
+        status: generation.run_status,
+        comparison: { id: generation.comparison_id, name: generation.comparison_name, model: generation.comparison_model },
+      },
     })),
     artifacts: (artifactsResult.rows as Row[]).map((artifact) => ({
       artifactType: artifact.artifact_type,

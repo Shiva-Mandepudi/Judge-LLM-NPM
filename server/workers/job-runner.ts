@@ -14,6 +14,7 @@ import { enqueueHumanReview } from "../services/human-review-service.js";
 import { logAudit } from "../services/audit-service.js";
 import { logger } from "../lib/logger.js";
 import type { GenerationRequest, GenerationResponse } from "../../shared/contract.js";
+import { runComparisonJob } from "./comparison-job-runner.js";
 
 /**
  * Runs exactly one evaluation job end to end: load the immutable ground truth
@@ -24,6 +25,10 @@ import type { GenerationRequest, GenerationResponse } from "../../shared/contrac
 export async function runJob(db: Db, jobId: string): Promise<void> {
   const [job] = await db.select().from(evalJobs).where(eq(evalJobs.id, jobId));
   if (!job) throw new Error(`Job ${jobId} not found`);
+  if (job.runId) {
+    await runComparisonJob(db, jobId);
+    return;
+  }
 
   const [experiment] = await db.select().from(evalExperiments).where(eq(evalExperiments.id, job.experimentId));
   if (!experiment) throw new Error(`Experiment ${job.experimentId} not found`);
