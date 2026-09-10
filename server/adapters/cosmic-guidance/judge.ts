@@ -7,6 +7,7 @@ import type { RenderedPayload } from "../../core/pipeline/render.js";
 import { assertNotBlocked, loadBlockers, loadDatasetsConfig, loadTrackSpecs } from "../../core/config/loader.js";
 import { judgeAndPersistRenderedPayload } from "./evidence-judge.js";
 import { loadTrackPrompt } from "./prompt.js";
+import { db } from "../../db.js";
 
 const CONFIG_DIR = path.resolve(import.meta.dirname, "../../../config");
 
@@ -30,7 +31,7 @@ export async function judgeRun(runId: string, binding: ProviderBinding, judgeEff
     const track = byTrack.get(payload.track);
     if (!track) throw new Error(`payload track "${payload.track}" is not an active configured reading`);
     const prompt = await loadTrackPrompt(track, payload);
-    const result = await judgeAndPersistRenderedPayload(payload, prompt, binding, judgeEffort);
+    const result = await judgeAndPersistRenderedPayload(payload, prompt, binding, judgeEffort, undefined, { db, jobId: null, runId, judgeRole: "primary" });
     statuses[result.status] = (statuses[result.status] ?? 0) + 1;
   }
   return { runId, judged: payloads.length, statuses };

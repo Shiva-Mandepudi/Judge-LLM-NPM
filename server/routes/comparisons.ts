@@ -36,10 +36,11 @@ comparisonsRouter.post("/:id/runs", async (req, res) => {
   const parsed = z.object({
     userKeys: z.array(z.string().regex(/^cb-actor-\d{3}$/)).max(100).optional(),
     readingTypes: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+    readingSubtypes: z.array(z.string().trim().min(1).max(100)).max(10).optional(),
   }).safeParse(req.body ?? {});
   if (!parsed.success) { res.status(400).json({ error: "invalid_request", details: parsed.error.message }); return; }
   try {
-    const run = await createComparisonRun(db, { comparisonId: req.params.id, userKeys: parsed.data.userKeys, readingTypes: parsed.data.readingTypes, createdBy: req.serviceActor?.subject ?? "unknown" });
+    const run = await createComparisonRun(db, { comparisonId: req.params.id, userKeys: parsed.data.userKeys, readingTypes: parsed.data.readingTypes, readingSubtypes: parsed.data.readingSubtypes, createdBy: req.serviceActor?.subject ?? "unknown" });
     res.status(201).json({ run });
   } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
 });

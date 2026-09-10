@@ -15,7 +15,7 @@
     <nav id="main-nav" class="nav">
       <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
       <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Comparisons &amp; runs</span></a>
-      <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Dataset</span></a>
+      <a data-nav href="cost-usage.html"><span class="nav-icon">$</span><span>Cost &amp; usage</span></a>
       <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>100 users</span></a>
       <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
     </nav>
@@ -31,17 +31,18 @@
       <div class="panel-header"><div><h2>Create comparison</h2><p class="hint">The fixed 100-user dataset and reading prompts are managed by the service. Choose only what changes: the model.</p></div></div>
       <div class="form-grid">
         <div><label for="comparison-name">Comparison name</label><input id="comparison-name" placeholder="e.g. GPT-5.4 check" /></div>
-        <div><label for="comparison-model">Model to test</label><select id="comparison-model" required><option value="">Choose a model</option><optgroup label="OpenAI"><option value="gpt-5.6-sol">gpt-5.6-sol · current dataset model</option><option value="gpt-5.4">gpt-5.4</option><option value="gpt-5">gpt-5</option><option value="gpt-5-mini">gpt-5-mini</option><option value="gpt-4.1">gpt-4.1</option><option value="o3">o3</option><option value="o4-mini">o4-mini</option></optgroup><optgroup label="Anthropic"><option value="claude-opus-4-1">Claude Opus 4.1</option><option value="claude-sonnet-4">Claude Sonnet 4</option><option value="claude-3-7-sonnet-latest">Claude 3.7 Sonnet</option><option value="claude-3-5-haiku-latest">Claude 3.5 Haiku</option></optgroup><optgroup label="Google Gemini"><option value="gemini-2.5-pro">Gemini 2.5 Pro</option><option value="gemini-2.5-flash">Gemini 2.5 Flash</option><option value="gemini-2.0-flash">Gemini 2.0 Flash</option><option value="gemini-2.0-flash-lite">Gemini 2.0 Flash-Lite</option></optgroup><option value="custom">Custom model…</option></select><input id="custom-model" class="hidden" placeholder="Enter model ID" autocomplete="off" /></div>
+        <div><label for="comparison-model">Model to test</label><select id="comparison-model" required><option value="">Choose a model</option><optgroup label="OpenAI"><option value="gpt-5.6-sol">gpt-5.6-sol · current dataset model</option><option value="gpt-5.4">gpt-5.4</option><option value="gpt-5.2">gpt-5.2</option><option value="gpt-5.1">gpt-5.1</option><option value="gpt-5">gpt-5</option><option value="gpt-5-mini">gpt-5-mini</option><option value="gpt-4.1">gpt-4.1</option><option value="gpt-4.1-mini">gpt-4.1-mini</option><option value="gpt-4o">gpt-4o</option><option value="gpt-4o-mini">gpt-4o-mini</option><option value="o3">o3</option><option value="o4-mini">o4-mini</option></optgroup><optgroup label="Anthropic"><option value="claude-opus-4-5">Claude Opus 4.5</option><option value="claude-sonnet-5">Claude Sonnet 5</option><option value="claude-sonnet-4-5">Claude Sonnet 4.5</option><option value="claude-haiku-4-5">Claude Haiku 4.5</option><option value="claude-opus-4-1">Claude Opus 4.1</option></optgroup><optgroup label="Google Gemini"><option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option><option value="gemini-2.5-pro">Gemini 2.5 Pro</option><option value="gemini-2.5-flash">Gemini 2.5 Flash</option><option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option></optgroup></select></div>
       </div>
       <div class="form-actions"><button id="create-comparison">Create comparison</button><span id="create-status" class="status"></span></div>
     </section>
 
     <section class="panel">
-      <div class="panel-header"><div><h2>Start a run</h2><p class="hint">Select any users and reading types. Leave either list empty to run all available values.</p></div><span id="run-status" class="status"></span></div>
-      <div class="form-grid">
+      <div class="panel-header"><div><h2>Start a run</h2><p class="hint">Choose brief, detailed, or both for complete coverage. Reading types that only have a full output are included automatically.</p></div><span id="run-status" class="status"></span></div>
+      <div class="form-grid run-grid">
         <div><label for="run-comparison">Comparison</label><select id="run-comparison"><option value="">Loading comparisons…</option></select></div>
         <div><label>Users <span class="muted">optional · multi-select</span></label><div class="multi-picker" id="users-picker"><button type="button" class="multi-picker-trigger" id="users-trigger" aria-expanded="false">All users <span>⌄</span></button><div class="multi-picker-menu hidden" id="users-menu"><input id="users-search" placeholder="Search users…" autocomplete="off" /><div class="selection-actions"><button type="button" class="secondary" id="select-all-users">All users</button><button type="button" class="secondary" id="clear-users">Clear</button></div><div class="multi-picker-options" id="users-options"><span class="muted">Loading users…</span></div></div></div></div>
         <div><label>Reading types <span class="muted">optional · multi-select</span></label><div class="multi-picker" id="reading-types-picker"><button type="button" class="multi-picker-trigger" id="reading-types-trigger" aria-expanded="false">All reading types <span>⌄</span></button><div class="multi-picker-menu hidden" id="reading-types-menu"><input id="reading-types-search" placeholder="Search reading types…" autocomplete="off" /><div class="selection-actions"><button type="button" class="secondary" id="select-all-reading-types">All types</button><button type="button" class="secondary" id="clear-reading-types">Clear</button></div><div class="multi-picker-options" id="reading-types-options"><span class="muted">Loading reading types…</span></div></div></div></div>
+        <div><label>Reading depth <span class="muted">based on selected reading type</span></label><div class="multi-picker" id="reading-depths-picker"><button type="button" class="multi-picker-trigger" id="reading-depths-trigger" aria-expanded="false">All reading depths <span>⌄</span></button><div class="multi-picker-menu hidden" id="reading-depths-menu"><input id="reading-depths-search" placeholder="Search brief or detailed…" autocomplete="off" /><div class="selection-actions"><button type="button" class="secondary" id="select-all-reading-depths">All depths</button><button type="button" class="secondary" id="clear-reading-depths">Clear</button></div><div class="multi-picker-options" id="reading-depths-options"><span class="muted">Loading reading depths…</span></div><p id="reading-depths-note" class="hint"></p></div></div></div>
       </div>
       <div class="form-actions"><button id="start-run">Start run</button></div>
     </section>
@@ -66,31 +67,52 @@
 <script src="app.js"></script>
 <script>
 const { $, esc, date, api, pretty } = JudgeUI;
-let comparisons = [], runs = [];
-const pickerState = { users: [], "reading-types": [] };
+let comparisons = [], runs = [], readingOptions = { readingPairs: [] };
+const pickerState = { users: [], "reading-types": [], "reading-depths": [] };
+
+const fmtUsd = (value) => {
+  if (value == null) return "unknown";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "unknown";
+  return `$${number !== 0 && Math.abs(number) < 0.01 ? number.toFixed(6) : number.toFixed(2)}`;
+};
 
 function selectedValues(kind) { return pickerState[kind]; }
 function setSelected(kind, selected) {
   pickerState[kind] = selected;
   document.querySelectorAll(`#${kind}-options input[type="checkbox"]`).forEach((input) => { input.checked = selected.includes(input.value); });
   updatePicker(kind);
+  if (kind === "reading-types") refreshReadingDepths();
 }
 function renderPicker(kind, values) {
-  pickerState[kind] = [];
+  const previous = new Set(pickerState[kind]);
+  pickerState[kind] = values.filter((value) => previous.has(value));
   const options = $(kind + "-options");
   options.dataset.values = JSON.stringify(values);
   options.innerHTML = values.map((value) => `<label class="multi-picker-option"><input type="checkbox" value="${esc(value)}" /><span>${esc(value)}</span></label>`).join("") || '<span class="muted">No options available.</span>';
-  options.onchange = () => { pickerState[kind] = [...options.querySelectorAll("input:checked")].map((input) => input.value); updatePicker(kind); };
+  options.onchange = () => { pickerState[kind] = [...options.querySelectorAll("input:checked")].map((input) => input.value); updatePicker(kind); if (kind === "reading-types") refreshReadingDepths(); };
   $(kind + "-search").oninput = () => filterPicker(kind);
   updatePicker(kind);
 }
+
+function refreshReadingDepths() {
+  const selectedTypes = selectedValues("reading-types");
+  const pairs = (readingOptions.readingPairs || []).filter((pair) => !selectedTypes.length || selectedTypes.includes(pair.readingType));
+  const values = [...new Set(pairs.map((pair) => pair.readingSubtype).filter((value) => value === "brief" || value === "detailed"))].sort();
+  const fullOnly = [...new Set(pairs
+    .filter((pair) => pair.readingSubtype === "full" && !pairs.some((other) => other.readingType === pair.readingType && (other.readingSubtype === "brief" || other.readingSubtype === "detailed")))
+    .map((pair) => pair.readingType))].sort();
+  renderPicker("reading-depths", values);
+  $("reading-depths-note").textContent = fullOnly.length ? `${fullOnly.join(", ")} runs at its only available full depth automatically.` : "";
+}
+
 function filterPicker(kind) {
   const query = $(kind + "-search").value.trim().toLowerCase();
   $(kind + "-options").querySelectorAll(".multi-picker-option").forEach((option) => { option.hidden = query && !option.textContent.toLowerCase().includes(query); });
 }
 function updatePicker(kind) {
   const selected = pickerState[kind];
-  const label = kind === "users" ? "users" : "reading types";
+  const label = { users: "users", "reading-types": "reading types", "reading-depths": "reading depths" }[kind];
   $(kind + "-trigger").innerHTML = selected.length ? `${selected.length} ${label} selected <span>⌄</span>` : `All ${label} <span>⌄</span>`;
 }
 function togglePicker(kind, open) {
@@ -102,8 +124,7 @@ function togglePicker(kind, open) {
 
 async function createComparison() {
   const name = $("comparison-name").value.trim();
-  const selectedModel = $("comparison-model").value;
-  const candidateModel = selectedModel === "custom" ? $("custom-model").value.trim() : selectedModel;
+  const candidateModel = $("comparison-model").value;
   if (!name || !candidateModel) { $("create-status").textContent = "Enter a name and model."; return; }
   $("create-status").textContent = "Creating…";
   try {
@@ -111,8 +132,6 @@ async function createComparison() {
     $("create-status").textContent = "Comparison created.";
     $("comparison-name").value = "";
     $("comparison-model").value = "";
-    $("custom-model").value = "";
-    $("custom-model").classList.add("hidden");
     await loadAll();
   } catch (error) { $("create-status").textContent = `Failed: ${error.message}`; }
 }
@@ -120,32 +139,111 @@ async function createComparison() {
 async function startRun() {
   const comparisonId = $("run-comparison").value;
   if (!comparisonId) { $("run-status").textContent = "Choose a comparison."; return; }
-  $("run-status").textContent = "Starting…";
+  const startButton = $("start-run");
+  startButton.disabled = true;
+  $("run-status").textContent = "Estimating cost…";
   try {
     const userKeys = selectedValues("users");
     const readingTypes = selectedValues("reading-types");
-    const body = { ...(userKeys.length ? { userKeys } : {}), ...(readingTypes.length ? { readingTypes } : {}) };
+    const readingSubtypes = selectedValues("reading-depths");
+    try {
+      const params = new URLSearchParams({ comparisonId });
+      if (userKeys.length) params.set("userKeys", userKeys.join(","));
+      if (readingTypes.length) params.set("readingTypes", readingTypes.join(","));
+      if (readingSubtypes.length) params.set("readingSubtypes", readingSubtypes.join(","));
+      const estimate = await api(`/api/admin/costs/estimate?${params.toString()}`);
+      if (!estimate.pricedWith?.snapshotId) {
+        $("run-status").textContent = "Cannot start: sync official prices in Reviews & settings first.";
+        return;
+      }
+      const pricingProblems = (estimate.assumptions || []).filter((assumption) =>
+        /^(no pricing rate for candidate|no pricing rate for primary judge|no pricing rate for secondary judge|primary judge model could not|secondary judge model could not)/.test(assumption),
+      );
+      if (pricingProblems.length) {
+        $("run-status").textContent = `Cannot start: ${pricingProblems.join("; ")}. Choose an officially priced model.`;
+        return;
+      }
+      const judgesKnown = [estimate.estimate?.primaryJudge?.costUsd, estimate.estimate?.secondaryJudge?.costUsd].filter((value) => value != null);
+      const judges = judgesKnown.length ? judgesKnown.reduce((sum, value) => sum + value, 0) : null;
+      const rawAssumptions = estimate.assumptions || [];
+      const missingHistory = rawAssumptions.some((assumption) => assumption.includes("no candidate generation token history") || assumption.includes("no primary judge token history"));
+      const assumptions = rawAssumptions.filter((assumption) => !assumption.includes("no candidate generation token history") && !assumption.includes("no primary judge token history")).slice(0, 4).map((assumption) => ` · ${assumption}`).join("\n");
+      const estimateText = missingHistory && estimate.estimate?.total?.costUsd == null
+        ? `Pre-run cost is unavailable because this is before any matching token history exists for ${estimate.cases} case${estimate.cases === 1 ? "" : "s"}. The run will record actual input, output, total tokens, latency, and cost for every provider response.`
+        : `Estimated cost: ${fmtUsd(estimate.estimate?.total?.costUsd)} (${estimate.estimate?.total?.status || "unknown"}; candidate ${fmtUsd(estimate.estimate?.candidate?.costUsd)}, judges ${fmtUsd(judges)}) for ${estimate.cases} cases.`;
+      const prompt = `${estimateText}${assumptions ? `\nAssumptions:\n${assumptions}` : ""}\n\nStart run?`;
+      if (!window.confirm(prompt)) { $("run-status").textContent = ""; return; }
+    } catch (error) { $("run-status").textContent = `Cannot start: ${error.message}`; return; }
+    $("run-status").textContent = "Starting…";
+    const body = { ...(userKeys.length ? { userKeys } : {}), ...(readingTypes.length ? { readingTypes } : {}), ...(readingSubtypes.length ? { readingSubtypes } : {}) };
     const response = await api(`/api/admin/comparisons/${comparisonId}/runs`, { method: "POST", body: JSON.stringify(body) });
-    $("run-status").textContent = `Run started for ${response.run.userCount} user${response.run.userCount === 1 ? "" : "s"}.`;
+    $("run-status").textContent = `Run started for ${response.run.userCount} user${response.run.userCount === 1 ? "" : "s"}; processing in background.`;
     setSelected("users", []);
     setSelected("reading-types", []);
+    setSelected("reading-depths", []);
+    startButton.disabled = false;
     await loadAll();
     $("report-run").value = response.run.id;
     await loadReport();
+    $("report").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) { $("run-status").textContent = `Failed: ${error.message}`; }
+  finally { startButton.disabled = false; }
+}
+
+async function cancelRun(id) {
+  if (!window.confirm("Cancel this run? Pending work will stop and the run will remain available as cancelled.")) return;
+  $("run-status").textContent = "Cancelling…";
+  try {
+    await api(`/api/admin/runs/${id}/cancel`, { method: "POST" });
+    await loadAll();
+    $("report-run").value = id;
+    await loadReport();
+    $("run-status").textContent = "Run cancelled.";
+  } catch (error) { $("run-status").textContent = `Failed: ${error.message}`; }
+}
+
+async function analyzeRun(id) {
+  if (!window.confirm("Analyze this run with the configured judge model(s)? This makes LLM calls and may incur provider cost.")) return;
+  $("run-status").textContent = "Analyzing with judge…";
+  try {
+    const result = await api(`/api/admin/runs/${id}/analyze`, { method: "POST" });
+    await loadAll();
+    $("report-run").value = id;
+    await loadReport();
+    $("report").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("run-status").textContent = `Analyzed ${result.analyzedCases} case${result.analyzedCases === 1 ? "" : "s"}${result.repairedCases ? `; repaired ${result.repairedCases}` : ""}${result.failedCases ? `; ${result.failedCases} failed` : ""}.`;
+  } catch (error) { $("run-status").textContent = `Analysis failed: ${error.message}`; }
 }
 
 function renderTables() {
   $("run-comparison").innerHTML = `<option value="">Choose a comparison</option>` + comparisons.map((item) => `<option value="${esc(item.id)}">${esc(item.name)} · ${esc(item.candidateModel)}</option>`).join("");
   $("comparisons-table").innerHTML = comparisons.map((item) => `<tr><td><strong>${esc(item.name)}</strong></td><td>${esc(item.candidateModel)}</td><td>${item.runs.length}</td><td>${date(item.createdAt)}</td></tr>`).join("") || '<tr><td colspan="4" class="empty">No comparisons yet.</td></tr>';
-  $("runs-table").innerHTML = runs.map((run) => `<tr><td><a href="experiments.html?run=${encodeURIComponent(run.id)}"><strong>${esc(run.id.slice(0, 12))}…</strong></a><br><span class="muted">${date(run.createdAt)}</span></td><td>${esc(run.comparison?.name || "—")}<br><span class="muted">${esc(run.comparison?.candidateModel || "—")}</span></td><td>${run.userKeys.length}</td><td>${run.completedCases + run.failedCases}/${run.requestedCases}</td><td><span class="pill">${esc(run.status)}</span></td><td><button class="secondary" data-open-run="${esc(run.id)}">Open report</button></td></tr>`).join("") || '<tr><td colspan="6" class="empty">No runs yet. Create a comparison and start a run.</td></tr>';
+  $("runs-table").innerHTML = runs.map((run) => { const active = run.status === "queued" || run.status === "running"; const needsAnalysis = !active && ((run.judgedCases || 0) < run.requestedCases || run.analysisNeedsAttention); return `<tr><td><a href="experiments.html?run=${encodeURIComponent(run.id)}"><strong>${esc(run.id.slice(0, 12))}…</strong></a><br><span class="muted">${date(run.createdAt)}</span></td><td>${esc(run.comparison?.name || "—")}<br><span class="muted">${esc(run.comparison?.candidateModel || "—")}</span></td><td>${run.userKeys.length}</td><td>${run.completedCases + run.failedCases + (run.cancelledCases || 0)}/${run.requestedCases}</td><td><span class="pill">${esc(run.status)}</span></td><td><button class="secondary" data-open-run="${esc(run.id)}">Open report</button>${active ? ` <button class="secondary" data-cancel-run="${esc(run.id)}">Cancel</button>` : ""}${needsAnalysis ? ` <button data-analyze-run="${esc(run.id)}">Analyze</button>` : ""}</td></tr>`; }).join("") || '<tr><td colspan="6" class="empty">No runs yet. Create a comparison and start a run.</td></tr>';
   $("report-run").innerHTML = `<option value="">Choose a run</option>` + runs.map((run) => `<option value="${esc(run.id)}">${esc(run.comparison?.name || "Comparison")} · ${date(run.createdAt)} · ${esc(run.status)}</option>`).join("");
-  $("runs-table").querySelectorAll("[data-open-run]").forEach((button) => button.addEventListener("click", async () => { $("report-run").value = button.dataset.openRun; await loadReport(); }));
+  $("runs-table").querySelectorAll("[data-open-run]").forEach((button) => button.addEventListener("click", async () => { $("report-run").value = button.dataset.openRun; await loadReport(); $("report").scrollIntoView({ behavior: "smooth", block: "start" }); }));
+  $("runs-table").querySelectorAll("[data-cancel-run]").forEach((button) => button.addEventListener("click", () => cancelRun(button.dataset.cancelRun)));
+  $("runs-table").querySelectorAll("[data-analyze-run]").forEach((button) => button.addEventListener("click", () => analyzeRun(button.dataset.analyzeRun)));
 }
 
 function readingOutput(label, output) {
-  if (!output) return `<div class="callout"><strong>${esc(label)}</strong><br><span class="muted">No reading stored.</span></div>`;
-  return `<details open><summary><strong>${esc(label)}</strong> · ${esc(output.model || "unknown model")}</summary><pre>${pretty(output.parsedOutput ?? output.output ?? output)}</pre></details>`;
+  if (!output) return `<div class="reading-card empty-reading"><strong>${esc(label)}</strong><br><span class="muted">No reading stored.</span></div>`;
+  return `<div class="reading-card"><div class="reading-card-header"><strong>${esc(label)}</strong><span class="muted">${esc(output.model || "unknown model")}</span></div><pre>${pretty(output.parsedOutput ?? output.output ?? output)}</pre></div>`;
+}
+
+function judgeAnalysis(judge) {
+  const primary = judge?.primary;
+  if (!primary || (!primary.baseline && !primary.candidate)) return `<div class="judge-analysis"><h3>LLM analysis</h3><p class="muted">No judge analysis is stored for this case yet.</p></div>`;
+  const winner = primary.winnerArm === "candidate" ? "Candidate generated reading" : primary.winnerArm === "baseline" ? "Current dataset reading" : "Tie";
+  const response = (arm) => primary[arm]?.response;
+  const metricRows = (arm) => {
+    const value = response(arm);
+    if (!value) return '<p class="muted">No valid response stored.</p>';
+    return `<div class="judge-metrics">${Object.entries(value.metrics || {}).map(([name, metric]) => { const evidence = metric.evidence || {}; const evidenceText = [...(evidence.candidateQuotes || []).map((item) => `Candidate quote: ${item.quote}`), ...(evidence.referenceQuotes || []).map((item) => `Reference quote: ${item.quote}`), ...(evidence.inputRefs || []).map((item) => `Input: ${item.field}${item.value ? ` = ${item.value}` : ""}`), ...(evidence.absences || []).map((item) => `Absent: ${item.expected}`)]; return `<details><summary>${esc(name)} · score ${esc(metric.score == null ? "abstained" : metric.score)}${metric.gate ? ` · ${esc(metric.gate)}` : ""}</summary><p>${esc(evidence.rationale || "No rationale")}</p>${evidenceText.length ? `<ul>${evidenceText.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : "<p class=\"muted\">No evidence items.</p>"}</details>`; }).join("")}</div>`;
+  };
+  const secondaryWinner = judge.secondary?.winnerArm === "candidate" ? "Candidate generated reading" : judge.secondary?.winnerArm === "baseline" ? "Current dataset reading" : judge.secondary?.winnerArm === "Tie" ? "Tie" : "—";
+  const disagreement = judge.secondary && primary.winnerArm && judge.secondary.winnerArm && primary.winnerArm !== judge.secondary.winnerArm;
+  const secondary = judge.secondary ? `<div class="judge-secondary"><strong>Secondary judge (agreement check):</strong> ${esc(judge.secondary.provider)}/${esc(judge.secondary.model)} · winner ${esc(secondaryWinner)}${disagreement ? " · DISAGREES with primary" : " · agrees with primary"}</div>` : "";
+  return `<details class="judge-analysis"><summary><strong>LLM evaluation</strong> · primary winner: ${esc(winner)}${disagreement ? " · judge disagreement" : ""}</summary><div class="judge-analysis-body"><p class="hint">Winner policy: fewer primary hard-gate failures wins; otherwise the configured composite quality score decides. A tie is retained. The secondary judge is sampled for agreement only.</p><div class="judge-meta"><span><strong>Primary:</strong> ${esc(primary.candidate?.provider || primary.baseline?.provider || "—")}/${esc(primary.candidate?.model || primary.baseline?.model || "—")}</span><span><strong>Winner:</strong> ${esc(winner)}</span><span><strong>Confidence:</strong> ${esc(response("candidate")?.overall?.confidence || response("baseline")?.overall?.confidence || "—")}</span></div><div class="judge-evidence-grid"><div><h3>Current dataset reading</h3>${metricRows("baseline")}</div><div><h3>Candidate generated reading</h3>${metricRows("candidate")}</div></div>${secondary}</div></details>`;
 }
 
 async function loadReport() {
@@ -156,9 +254,23 @@ async function loadReport() {
     const report = await api(`/api/admin/runs/${id}/report`);
     const run = report.run;
     const readingTypes = run.readingTypes?.length ? run.readingTypes.join(", ") : "all reading types";
-    let html = `<div class="callout"><strong>${esc(report.comparison.name)}</strong> · model ${esc(report.comparison.model)}<br>Run ${esc(run.id)} · ${esc(run.status)} · ${run.userCount} users · ${esc(readingTypes)} · ${run.coverage.completed + run.coverage.failed}/${run.coverage.requested} cases finished</div>`;
-    html += (report.readings || []).map((reading) => { const candidate = (reading.generatedReadings || []).find((output) => output.arm === "candidate"); return `<details class="job"><summary><strong>${esc(reading.subjectKey || "unknown user")}</strong> · ${esc(reading.readingType)} · ${esc(reading.readingSubtype || "full")} · ${esc(reading.status)}</summary><p class="hint">${esc(reading.caseKey)}${reading.error ? ` · ${esc(reading.error)}` : ""}</p><div class="two-col"><div><h3>Input</h3><pre>${pretty(reading.inputSnapshot)}</pre></div><div><h3>Readings</h3>${reading.currentReading ? readingOutput("Current dataset reading", reading.currentReading) : ""}${candidate ? readingOutput("Candidate generated reading", candidate) : '<p class="muted">Candidate reading is not available yet.</p>'}</div></div></details>`; }).join("") || '<p class="empty">No cases were attached to this run.</p>';
+    const active = run.status === "queued" || run.status === "running";
+    const analysis = report.analysis || { status: "not_analyzed", judgedCases: 0, totalCases: report.readings?.length || 0 };
+    const needsAnalysis = !active && (analysis.status !== "complete" || analysis.secondaryFailures > 0);
+    let html = `<div class="callout"><strong>${esc(report.comparison.name)}</strong> · model ${esc(report.comparison.model)}<br>Run ${esc(run.id)} · ${esc(run.status)} · ${run.userCount} users · ${esc(readingTypes)} · ${run.coverage.completed + run.coverage.failed + (run.coverage.cancelled || 0)}/${run.coverage.requested} cases finished${active ? ` <button class="secondary" data-report-cancel="${esc(id)}">Cancel run</button>` : ""}${needsAnalysis ? ` <button data-report-analyze="${esc(id)}">Analyze with LLM</button>` : ""}</div>`;
+    if (analysis.judgedCases) html += `<div class="analysis-summary"><strong>LLM evaluation:</strong> ${analysis.judgedCases}/${analysis.totalCases} cases analyzed · primary candidate wins ${analysis.candidateWins ?? 0} · primary current wins ${analysis.baselineWins ?? 0} · primary ties ${analysis.ties ?? 0} · hard-gate failures ${analysis.hardGateFailures ?? 0}${analysis.secondaryJudgeCases ? ` · secondary checked ${analysis.secondaryJudgeCases}` : ""}${analysis.secondaryDisagreements ? ` · secondary disagreed ${analysis.secondaryDisagreements}` : ""}${analysis.secondaryFailures ? ` · secondary judge unavailable for ${analysis.secondaryFailures} case${analysis.secondaryFailures === 1 ? "" : "s"}` : ""}${analysis.primaryJudge ? ` · authoritative judge ${esc(analysis.primaryJudge.provider)}/${esc(analysis.primaryJudge.model)}` : ""} · expand a case and then “LLM evaluation” for rationale</div>`;
+    else if (needsAnalysis) html += '<div class="analysis-summary warn">This run has generated readings, but no LLM evaluation report yet. Click “Analyze with LLM”.</div>';
+    try {
+      const cost = await api(`/api/admin/costs/runs/${id}`);
+      const summary = cost.summary || {};
+      html += `<div class="analysis-summary"><strong>Cost:</strong> ${fmtUsd(summary.total?.costUsd)} ${esc(cost.status || "unknown")} · <strong>Candidate:</strong> ${fmtUsd(summary.candidate?.costUsd)} · <strong>Primary judge:</strong> ${fmtUsd(summary.primaryJudge?.costUsd)} · <strong>Secondary judge:</strong> ${fmtUsd(summary.secondaryJudge?.costUsd)} · <strong>Pricing snapshot:</strong> ${esc(cost.pricing?.snapshotId || "none")} · <a href="cost-usage.html?run=${encodeURIComponent(id)}">Open cost analysis →</a></div>`;
+    } catch (error) {
+      html += `<div class="analysis-summary">Cost analysis is unavailable for this run (${esc(error.message)}). <a href="cost-usage.html?run=${encodeURIComponent(id)}">Open cost analysis →</a></div>`;
+    }
+    html += (report.readings || []).map((reading) => { const candidate = (reading.generatedReadings || []).find((output) => output.arm === "candidate"); return `<details class="job"><summary><strong>${esc(reading.subjectKey || "unknown user")}</strong> · ${esc(reading.readingType)} · ${esc(reading.readingSubtype || "full")} · ${esc(reading.status)}</summary><p class="hint">${esc(reading.caseKey)}${reading.error ? ` · ${esc(reading.error)}` : ""}</p><div class="case-input"><h3>Input</h3><pre>${pretty(reading.inputSnapshot)}</pre></div><div class="reading-section"><h3>Current vs candidate</h3><div class="reading-compare">${readingOutput("Current dataset reading", reading.currentReading)}${readingOutput("Candidate generated reading", candidate)}</div></div>${judgeAnalysis(reading.judge)}</details>`; }).join("") || '<p class="empty">No cases were attached to this run.</p>';
     $("report-output").innerHTML = html;
+    $("report-output").querySelector("[data-report-cancel]")?.addEventListener("click", () => cancelRun(id));
+    $("report-output").querySelector("[data-report-analyze]")?.addEventListener("click", () => analyzeRun(id));
   } catch (error) { $("report-output").innerHTML = `<p class="error">${esc(error.message)}</p>`; }
 }
 
@@ -168,7 +280,9 @@ async function loadAll() {
     comparisons = comparisonResponse.comparisons || [];
     runs = runResponse.runs || [];
     renderPicker("users", options.userKeys || []);
+    readingOptions = options;
     renderPicker("reading-types", options.readingTypes || []);
+    refreshReadingDepths();
     renderTables();
     const selected = new URLSearchParams(location.search).get("run");
     if (selected && runs.some((run) => run.id === selected)) { $("report-run").value = selected; await loadReport(); }
@@ -176,16 +290,19 @@ async function loadAll() {
 }
 
 $("create-comparison").addEventListener("click", createComparison);
-$("comparison-model").addEventListener("change", () => $("custom-model").classList.toggle("hidden", $("comparison-model").value !== "custom"));
 $("select-all-users").addEventListener("click", () => setSelected("users", JSON.parse($("users-options").dataset.values || "[]")));
 $("clear-users").addEventListener("click", () => setSelected("users", []));
 $("select-all-reading-types").addEventListener("click", () => setSelected("reading-types", JSON.parse($("reading-types-options").dataset.values || "[]")));
 $("clear-reading-types").addEventListener("click", () => setSelected("reading-types", []));
+$("select-all-reading-depths").addEventListener("click", () => setSelected("reading-depths", JSON.parse($("reading-depths-options").dataset.values || "[]")));
+$("clear-reading-depths").addEventListener("click", () => setSelected("reading-depths", []));
 $("users-trigger").addEventListener("click", () => togglePicker("users", $("users-menu").classList.contains("hidden")));
 $("reading-types-trigger").addEventListener("click", () => togglePicker("reading-types", $("reading-types-menu").classList.contains("hidden")));
+$("reading-depths-trigger").addEventListener("click", () => togglePicker("reading-depths", $("reading-depths-menu").classList.contains("hidden")));
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#users-picker")) togglePicker("users", false);
   if (!event.target.closest("#reading-types-picker")) togglePicker("reading-types", false);
+  if (!event.target.closest("#reading-depths-picker")) togglePicker("reading-depths", false);
 });
 $("start-run").addEventListener("click", startRun);
 $("load-report").addEventListener("click", loadReport);

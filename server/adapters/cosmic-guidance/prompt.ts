@@ -18,7 +18,7 @@ function metricRows(source: string): MetricSpec[] {
     return {
       key: match[1],
       gate: /HARD/i.test(classification) ? "hard" : "soft",
-      class: /factual/i.test(classification) ? "factual" : /structural/i.test(classification) ? "structural" : "quality",
+      class: /comparative/i.test(classification) ? "comparative" : /factual/i.test(classification) ? "factual" : /structural/i.test(classification) ? "structural" : "quality",
     };
   });
 }
@@ -50,10 +50,10 @@ export async function loadTrackPrompt(track: TrackSpec, payload: RenderedPayload
   const kernelSource = await readFile(path.join(ROOT, "docs/LLM PLAN/01-judge-prompt/00-universal-kernel.md"), "utf8");
   const universalSource = await readFile(path.join(ROOT, "docs/LLM PLAN/02-metric-suite/00-universal-metrics.md"), "utf8");
   const rubricSource = await readFile(path.resolve(ROOT, track.prompt.rubricPack), "utf8");
-  const metrics = [...metricRows(universalSource), ...metricRows(rubricSource)].filter((metric, index, all) => all.findIndex((candidate) => candidate.key === metric.key) === index);
+  const referenceText = payload.content.sections.filter((section) => section.path === "silver" || section.path.startsWith("silver.")).map((section) => section.text).join("\n") || undefined;
+  const metrics = [...metricRows(universalSource), ...metricRows(rubricSource)].filter((metric, index, all) => all.findIndex((candidate) => candidate.key === metric.key) === index).filter((metric) => metric.class !== "comparative" || Boolean(referenceText));
   const schema = buildEvidenceJudgeSchema(metrics);
   const caseTemplate = kernelSource.match(/## `CASE_PAYLOAD`[\s\S]*?```text\n([\s\S]*?)```/)?.[1] ?? "";
-  const referenceText = payload.content.sections.filter((section) => section.path === "silver" || section.path.startsWith("silver.")).map((section) => section.text).join("\n") || undefined;
   const userPrompt = replace(caseTemplate, {
     track_label: track.label,
     track_purpose_oneline: track.purpose,

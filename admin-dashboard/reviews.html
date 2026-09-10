@@ -15,8 +15,8 @@
     <nav id="main-nav" class="nav">
       <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
       <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Comparisons &amp; runs</span></a>
-      <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Datasets</span></a>
-      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>Dataset users</span></a>
+      <a data-nav href="cost-usage.html"><span class="nav-icon">$</span><span>Cost &amp; usage</span></a>
+      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>100 users</span></a>
       <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
     </nav>
     <div class="sidebar-footer"><strong>Private service</strong>Evaluation artifacts only</div>
@@ -30,18 +30,28 @@
     </section>
 
     <section class="panel">
-      <div class="panel-header"><div><h2>Judge configuration</h2><p class="hint">Provider credentials are referenced by secret name only. Saving creates a new version; it does not mutate old evidence.</p></div><span id="config-status" class="status"></span></div>
+      <div class="panel-header"><div><h2>Judge configuration</h2><p class="hint">Models are loaded from each provider’s official catalog. Credentials are referenced by secret name only; saving creates a new version and does not mutate old evidence.</p></div><span id="config-status" class="status"></span></div>
       <div class="form-grid">
-        <div><label for="primary-provider">Primary provider</label><input id="primary-provider" placeholder="anthropic, openai, gemini, mock" /></div>
-        <div><label for="primary-model">Primary judge model</label><input id="primary-model" /></div>
-        <div><label for="primary-secretref">Primary secret reference</label><input id="primary-secretref" /></div>
-        <div><label for="secondary-provider">Secondary provider</label><input id="secondary-provider" placeholder="anthropic, openai, gemini, mock" /></div>
-        <div><label for="secondary-model">Secondary judge model</label><input id="secondary-model" /></div>
-        <div><label for="secondary-secretref">Secondary secret reference</label><input id="secondary-secretref" /></div>
+        <div><label for="primary-provider">Primary provider</label><select id="primary-provider"><option value="unset">Not configured</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option><option value="mock">Mock (local only)</option></select></div>
+        <div><label for="primary-model">Primary judge model</label><select id="primary-model"></select></div>
+        <div><label for="primary-secretref">Primary secret reference</label><select id="primary-secretref"></select><input id="primary-secretref-custom" class="hidden" placeholder="Secret Manager resource or env ref" autocomplete="off" /></div>
+        <div><label for="secondary-provider">Secondary provider</label><select id="secondary-provider"><option value="unset">Not configured</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option><option value="mock">Mock (local only)</option></select></div>
+        <div><label for="secondary-model">Secondary judge model</label><select id="secondary-model"></select></div>
+        <div><label for="secondary-secretref">Secondary secret reference</label><select id="secondary-secretref"></select><input id="secondary-secretref-custom" class="hidden" placeholder="Secret Manager resource or env ref" autocomplete="off" /></div>
       </div>
       <div class="form-actions"><label for="secondary-rate">Secondary judge sample rate (0–1)</label><input id="secondary-rate" type="number" min="0" max="1" step=".05" style="max-width:130px" /><button id="save-config">Save configuration</button></div>
       <div class="divider"></div>
       <div class="callout"><strong>Fail-closed reminder</strong><br />Unresolved model, provider, rate, or secret references should remain explicit until the paid-run sign-off is available.</div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><div><h2>Pricing snapshots</h2><p class="hint">Official provider prices are synced manually into immutable snapshots. Runs are priced against the snapshot recorded at start time; a failed sync never touches the last valid snapshot.</p></div><span id="pricing-status" class="status"></span></div>
+      <div class="form-actions" style="margin-top:0"><button id="sync-pricing">Sync official prices</button><span id="sync-result" class="status"></span></div>
+      <div id="pricing-summary" class="analysis-summary">Loading pricing status…</div>
+      <div id="pricing-failed"></div>
+      <div class="table-wrap"><table><thead><tr><th>Provider</th><th>Models</th><th>Rate entries</th><th>Source</th></tr></thead><tbody id="pricing-providers-table"></tbody></table></div>
+      <h3 style="margin-top:18px">Snapshot history</h3>
+      <div class="table-wrap"><table><thead><tr><th>Snapshot</th><th>Created</th><th>Status</th><th>Model rates</th><th>Unresolved</th></tr></thead><tbody id="pricing-snapshots-table"></tbody></table></div>
     </section>
 
     <section class="panel">
@@ -54,6 +64,56 @@
 <script>
 const { $, esc, date, api } = JudgeUI;
 let currentConfig = null;
+const providerModels = {
+  unset: ["unset"],
+  mock: ["mock-judge"],
+};
+const secretReferences = ["unset", "MOCK_SECRET", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"];
+
+function renderModelOptions(role, selected) {
+  const provider = $(role + "-provider").value;
+  const select = $(role + "-model");
+  const values = providerModels[provider] || [];
+  select.innerHTML = values.length ? values.map((model) => `<option value="${esc(model)}">${esc(model)}</option>`).join("") : '<option value="" disabled selected>No official models loaded</option>';
+  const normalized = String(selected || "").trim();
+  if (normalized && values.includes(normalized)) select.value = normalized;
+  else if (values.length) select.value = values[0];
+}
+
+function renderSecretOptions(role, selected) {
+  const select = $(role + "-secretref");
+  const custom = $(role + "-secretref-custom");
+  select.innerHTML = secretReferences.map((ref) => `<option value="${esc(ref)}">${esc(ref)}</option>`).join("") + '<option value="custom">Custom reference…</option>';
+  const normalized = String(selected || "").trim();
+  const provider = $(role + "-provider").value;
+  const defaultReference = { unset: "unset", mock: "MOCK_SECRET", openai: "OPENAI_API_KEY", anthropic: "ANTHROPIC_API_KEY", gemini: "GEMINI_API_KEY" }[provider] || "unset";
+  if (normalized && secretReferences.includes(normalized)) { select.value = normalized; custom.value = ""; custom.classList.add("hidden"); }
+  else if (normalized) { select.value = "custom"; custom.value = normalized; custom.classList.remove("hidden"); }
+  else { select.value = defaultReference; custom.value = ""; custom.classList.add("hidden"); }
+}
+
+function selectedModel(role) { return $(role + "-model").value.trim(); }
+function selectedSecretReference(role) { return $(role + "-secretref").value === "custom" ? $(role + "-secretref-custom").value.trim() : $(role + "-secretref").value; }
+async function loadProviderModels(role, selected) {
+  const provider = $(role + "-provider").value;
+  renderModelOptions(role, selected);
+  if (provider === "mock" || provider === "unset") return;
+  const secretRef = selectedSecretReference(role);
+  if (!secretRef || secretRef === "unset") return;
+  const select = $(role + "-model");
+  select.disabled = true;
+  select.innerHTML = '<option>Loading official models…</option>';
+  try {
+    const response = await api("/api/admin/provider-models", { method: "POST", body: JSON.stringify({ provider, secretRef }) });
+    providerModels[provider] = response.models || [];
+    renderModelOptions(role, selected);
+  } catch (error) {
+    select.innerHTML = '<option value="" disabled selected>Official catalog unavailable</option>';
+    $("config-status").textContent = `Could not load ${provider} models: ${error.message}`;
+  } finally { select.disabled = false; }
+}
+function bindProvider(role) { $(role + "-provider").addEventListener("change", () => { renderSecretOptions(role); loadProviderModels(role); }); }
+function bindSecretReference(role) { $(role + "-secretref").addEventListener("change", () => { $(role + "-secretref-custom").classList.toggle("hidden", $(role + "-secretref").value !== "custom"); loadProviderModels(role, selectedModel(role)); }); }
 
 function renderReviews(reviews) {
   $("reviews-table").innerHTML = reviews.map((review) => `<tr><td>${esc(review.jobId)}</td><td>${esc(review.experimentId)}</td><td><span class="pill">${esc(review.reason)}</span></td><td>${date(review.createdAt)}</td><td><div class="actions"><select data-decision="${esc(review.id)}"><option value="confirm_fail">Confirm fail</option><option value="overturn_pass">Overturn pass</option><option value="needs_more_data">Needs more data</option></select><button data-resolve="${esc(review.id)}">Resolve</button></div><input data-notes="${esc(review.id)}" placeholder="Optional notes" /></td></tr>`).join("") || '<tr><td colspan="5" class="empty">Review queue is clear.</td></tr>';
@@ -81,11 +141,11 @@ async function loadConfig() {
     const primary = currentConfig.providers.primary_judge;
     const secondary = currentConfig.providers.secondary_judge;
     $("primary-provider").value = primary.provider;
-    $("primary-model").value = primary.model;
-    $("primary-secretref").value = primary.secretRef;
+    renderSecretOptions("primary", primary.secretRef);
+    await loadProviderModels("primary", primary.model);
     $("secondary-provider").value = secondary.provider;
-    $("secondary-model").value = secondary.model;
-    $("secondary-secretref").value = secondary.secretRef;
+    renderSecretOptions("secondary", secondary.secretRef);
+    await loadProviderModels("secondary", secondary.model);
     $("secondary-rate").value = currentConfig.secondaryJudgeSampleRate;
   } catch (error) { $("config-status").textContent = `Could not load active config: ${error.message}`; }
 }
@@ -94,9 +154,69 @@ async function saveConfig() {
   const status = $("config-status");
   status.textContent = "Saving…";
   const base = currentConfig || { thresholds: {}, rateLimits: {}, retryPolicy: {}, humanReviewTriggers: {} };
-  const value = { ...base, providers: { primary_judge: { provider: $("primary-provider").value.trim(), model: $("primary-model").value.trim(), secretRef: $("primary-secretref").value.trim() }, secondary_judge: { provider: $("secondary-provider").value.trim(), model: $("secondary-model").value.trim(), secretRef: $("secondary-secretref").value.trim() } }, secondaryJudgeSampleRate: Number($("secondary-rate").value || 0) };
+  const primaryModel = selectedModel("primary");
+  const secondaryModel = selectedModel("secondary");
+  const primarySecretReference = selectedSecretReference("primary");
+  const secondarySecretReference = selectedSecretReference("secondary");
+  if (!primaryModel || !secondaryModel || !primarySecretReference || !secondarySecretReference) { status.textContent = "Choose a model and secret reference for both judge roles."; return; }
+  const value = { ...base, providers: { primary_judge: { provider: $("primary-provider").value, model: primaryModel, secretRef: primarySecretReference }, secondary_judge: { provider: $("secondary-provider").value, model: secondaryModel, secretRef: secondarySecretReference } }, secondaryJudgeSampleRate: Number($("secondary-rate").value || 0) };
   try { const result = await api("/api/admin/config", { method: "POST", body: JSON.stringify({ configKey: "global", value }) }); status.textContent = `Saved config version ${result.version}.`; await loadConfig(); await loadAudit(); }
   catch (error) { status.textContent = `Failed: ${error.message}`; }
+}
+
+async function loadPricing() {
+  try {
+    const status = await api("/api/admin/pricing/status");
+    const latest = status.latestValidSnapshot;
+    $("pricing-summary").innerHTML = latest
+      ? `<strong>Current snapshot:</strong> ${esc(latest.id)} · last successful sync ${date(latest.createdAt)}${latest.asOf ? ` · catalog as of ${esc(latest.asOf)}` : ""} · unresolved models ${esc(status.unresolvedModelCount)}`
+      : '<span class="warn">No valid pricing snapshot yet — sync official prices before paid runs; unpriced costs stay unknown, never $0.</span>';
+    $("pricing-failed").innerHTML = status.lastFailedSync
+      ? `<div class="analysis-summary warn"><strong>Last failed sync:</strong> ${esc(status.lastFailedSync.id)} · ${date(status.lastFailedSync.createdAt)}<br>${esc(status.lastFailedSync.errorSummary || "no error details recorded").replace(/\n/g, "<br>")}</div>`
+      : "";
+    const providers = Object.entries(status.providers || {});
+    let sourceUrls = new Map();
+    if (latest) {
+      try {
+        const snapshot = await api(`/api/admin/pricing/snapshots/${encodeURIComponent(latest.id)}`);
+        for (const rate of snapshot.rates || []) {
+          if (rate.sourceUrl && !sourceUrls.has(rate.provider)) sourceUrls.set(rate.provider, rate.sourceUrl);
+        }
+      } catch { /* source links are best-effort */ }
+    }
+    $("pricing-providers-table").innerHTML = providers.map(([provider, info]) => {
+      const url = sourceUrls.get(provider);
+      return `<tr><td><strong>${esc(provider)}</strong></td><td>${esc(info.models)}</td><td>${esc(info.entries)}</td><td>${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">official source</a>` : "—"}</td></tr>`;
+    }).join("") || '<tr><td colspan="4" class="empty">No priced providers in the current snapshot.</td></tr>';
+    const snapshots = status.recentSnapshots || [];
+    const rows = snapshots.map((snapshot) =>
+      `<tr><td>${esc(snapshot.id)}</td><td>${date(snapshot.createdAt)}</td><td><span class="pill ${snapshot.status === "valid" ? "known" : "unknown"}">${esc(snapshot.status)}</span></td><td>${snapshot.rateCount}</td><td>${snapshot.unresolvedCount}</td></tr>`
+    );
+    $("pricing-snapshots-table").innerHTML = rows.join("") || '<tr><td colspan="5" class="empty">No snapshots recorded yet.</td></tr>';
+  } catch (error) {
+    $("pricing-summary").innerHTML = `<span class="error">Failed to load pricing status: ${esc(error.message)}</span>`;
+  }
+}
+
+async function syncPricing() {
+  const status = $("sync-result");
+  const button = $("sync-pricing");
+  button.disabled = true;
+  status.className = "status";
+  status.textContent = "Syncing official prices…";
+  try {
+    const result = await api("/api/admin/pricing/sync", { method: "POST", body: JSON.stringify({}) });
+    const counts = result.counts || {};
+    const reachability = Object.entries(result.providers || {}).map(([provider, info]) => `${provider} ${info.reachable ? "reachable" : `unreachable${info.error ? ` (${info.error})` : info.httpStatus ? ` (HTTP ${info.httpStatus})` : ""}`}`).join(", ");
+    status.className = "status good";
+    status.textContent = `${result.unchanged ? "Catalog unchanged" : "Synced"} · snapshot ${result.snapshotId} · added ${counts.added ?? 0} · updated ${counts.updated ?? 0} · unchanged ${counts.unchanged ?? 0} · unresolved ${counts.unresolved ?? 0}${reachability ? ` · providers: ${reachability}` : ""}`;
+  } catch (error) {
+    status.className = "status error";
+    status.textContent = `Sync failed: ${error.message} — see “last failed sync” below for the recorded issue list.`;
+  } finally {
+    button.disabled = false;
+    await loadPricing();
+  }
 }
 
 async function loadAudit() {
@@ -107,8 +227,13 @@ async function loadAudit() {
 }
 
 $("save-config").addEventListener("click", saveConfig);
+$("sync-pricing").addEventListener("click", syncPricing);
 $("refresh-audit").addEventListener("click", loadAudit);
-Promise.all([loadReviews(), loadConfig(), loadAudit()]);
+bindProvider("primary"); bindProvider("secondary");
+bindSecretReference("primary"); bindSecretReference("secondary");
+renderModelOptions("primary"); renderModelOptions("secondary");
+renderSecretOptions("primary"); renderSecretOptions("secondary");
+Promise.all([loadReviews(), loadConfig(), loadAudit(), loadPricing()]);
 </script>
 </body>
 </html>

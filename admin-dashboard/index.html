@@ -15,7 +15,7 @@
     <nav id="main-nav" class="nav">
       <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
       <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Comparisons &amp; runs</span></a>
-      <a data-nav href="datasets.html"><span class="nav-icon">▤</span><span>Dataset</span></a>
+      <a data-nav href="cost-usage.html"><span class="nav-icon">$</span><span>Cost &amp; usage</span></a>
       <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>100 users</span></a>
       <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
     </nav>
@@ -28,7 +28,7 @@
     </header>
 
     <section class="cards">
-      <div class="card"><span class="card-label">Dataset users</span><strong id="stat-users" class="card-value">100</strong><span class="card-note">Fixed actor subjects</span></div>
+      <div class="card"><span class="card-label">Fixed corpus</span><strong id="stat-users" class="card-value">100</strong><span class="card-note">Actor subjects used by runs</span></div>
       <div class="card"><span class="card-label">Comparisons</span><strong id="stat-comparisons" class="card-value">—</strong><span class="card-note">Reusable model choices</span></div>
       <div class="card"><span class="card-label">Runs</span><strong id="stat-runs" class="card-value">—</strong><span class="card-note">User-level executions</span></div>
       <div class="card"><span class="card-label">Review queue</span><strong id="stat-reviews" class="card-value">—</strong><span class="card-note">Needs operator attention</span></div>
@@ -42,7 +42,7 @@
       <section class="panel">
         <div class="panel-header"><div><h2>Operator status</h2><p class="hint">The queue is the single place for human decisions.</p></div></div>
         <div id="status-summary" class="callout">Loading workspace status…</div>
-        <div class="form-actions"><a href="reviews.html">Open review queue</a><a href="datasets.html">Inspect datasets</a></div>
+        <div class="form-actions"><a href="reviews.html">Open review queue</a><a href="experiments.html">Open comparisons &amp; runs</a></div>
       </section>
     </div>
 
@@ -50,8 +50,7 @@
       <div class="panel-header"><div><h2>Use the workspace</h2><p class="hint">Each destination owns one job so the dashboard stays easy to scan.</p></div></div>
       <div class="grid-2">
         <div class="callout"><strong>Comparisons &amp; runs</strong><br />Choose a model, select users, and open the run report.</div>
-        <div class="callout"><strong>Dataset</strong><br />Inspect the fixed 100-user input and preserved current readings.</div>
-        <div class="callout"><strong>100 users</strong><br />Browse each subject and its reading cases.</div>
+        <div class="callout"><strong>Fixed dataset</strong><br />The 100-user corpus and current readings are used automatically by every run.</div>
         <div class="callout"><strong>Reviews &amp; settings</strong><br />Resolve hard-gate decisions and manage judge configuration.</div>
       </div>
     </section>

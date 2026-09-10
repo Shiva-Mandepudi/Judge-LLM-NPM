@@ -6,6 +6,8 @@ import { comparisonsRouter } from "./routes/comparisons.js";
 import { runsRouter } from "./routes/runs.js";
 import { adminRouter } from "./routes/admin.js";
 import { datasetBrowserRouter } from "./routes/dataset-browser.js";
+import { pricingRouter } from "./routes/pricing.js";
+import { costsRouter } from "./routes/costs.js";
 import { workerRouter } from "./routes/worker.js";
 import { requireAdminServiceAuth } from "./auth/service-auth.js";
 import { logger } from "./lib/logger.js";
@@ -31,6 +33,8 @@ app.use("/api/admin", requireAdminServiceAuth());
 app.use("/api/admin/comparisons", comparisonsRouter);
 app.use("/api/admin/runs", runsRouter);
 app.use("/api/admin/dataset-browser", datasetBrowserRouter);
+app.use("/api/admin/pricing", pricingRouter);
+app.use("/api/admin/costs", costsRouter);
 app.use("/api/admin", adminRouter);
 
 // Cloud Tasks push target — guarded by OIDC verification inside the router, not a shared secret.

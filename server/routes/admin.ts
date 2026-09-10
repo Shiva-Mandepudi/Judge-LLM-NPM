@@ -7,9 +7,21 @@ import { judgeConfigSchema } from "../../shared/config-schema.js";
 import { registerDataset } from "../services/dataset-service.js";
 import { listPendingReviews, resolveReview } from "../services/human-review-service.js";
 import { evalAuditLog, evalDatasets, evalDatasetCases, evalDatasetOutputs, evalDatasetSubjects } from "../../shared/schema.js";
+import { listProviderModels } from "../services/provider-models-service.js";
 
 export const adminRouter = Router();
 
+adminRouter.post("/provider-models", async (req, res) => {
+  const parsed = z.object({ provider: z.enum(["openai", "anthropic", "gemini", "mock", "unset"]), secretRef: z.string().trim().min(1).max(500) }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "invalid_request", details: parsed.error.message }); return; }
+  try {
+    res.json({ provider: parsed.data.provider, models: await listProviderModels(parsed.data.provider, parsed.data.secretRef) });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Read-only lookup used by the 100-user browser to resolve the canonical corpus.
 adminRouter.get("/datasets", async (_req, res) => {
   const datasets = await db.select().from(evalDatasets).orderBy(desc(evalDatasets.createdAt));
   const result = await Promise.all(datasets.map(async (dataset) => {
@@ -37,6 +49,15 @@ adminRouter.post("/config", async (req, res) => {
   }
   const actor = req.serviceActor?.subject ?? "unknown";
   try {
+    const supportedProviders = new Set(["openai", "anthropic", "gemini", "mock", "unset"]);
+    for (const [role, binding] of Object.entries(parsed.data.value.providers)) {
+      if (!supportedProviders.has(binding.provider)) throw new Error(`${role} uses unsupported provider "${binding.provider}".`);
+      if (binding.provider === "mock" || binding.provider === "unset") continue;
+      const officialModels = await listProviderModels(binding.provider as "openai" | "anthropic" | "gemini", binding.secretRef);
+      if (!officialModels.includes(binding.model)) {
+        throw new Error(`${role} model "${binding.model}" is not present in ${binding.provider}'s official model catalog.`);
+      }
+    }
     const result = await publishConfigVersion(db, { configKey: parsed.data.configKey, value: parsed.data.value, createdBy: actor });
     res.status(201).json(result);
   } catch (err) {

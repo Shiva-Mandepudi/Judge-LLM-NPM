@@ -7,6 +7,34 @@ function valueAt(fields: Record<string, unknown>, field: string): unknown {
   return Object.prototype.hasOwnProperty.call(fields, field) ? fields[field] : undefined;
 }
 
+function inputValuesMatch(actual: unknown, expected: string): boolean {
+  const actualText = String(actual).trim().replace(/\s+/g, " ").toLowerCase();
+  const expectedText = expected.trim().replace(/\s+/g, " ").toLowerCase();
+  if (actualText === expectedText) return true;
+  const parts = (value: string) => value.replace(/[°º]/g, "").split(/[,;]\s*/).map((part) => part.trim().replace(/^[a-z_]+\s*=\s*/, "").replace(/^(?:precision|position)\s+/, "")).filter(Boolean);
+  const actualParts = parts(actualText);
+  let expectedParts: string[];
+  try {
+    const parsed = JSON.parse(expectedText);
+    expectedParts = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? Object.values(parsed as Record<string, unknown>).flatMap((value) => parts(String(value))) : parts(expectedText);
+  } catch {
+    expectedParts = parts(expectedText);
+  }
+  if (actualParts.length !== expectedParts.length) return false;
+  const remaining = [...expectedParts];
+  return actualParts.every((actualPart) => {
+    const match = remaining.findIndex((expectedPart) => {
+    const actualNumber = Number(actualPart);
+    const expectedNumber = Number(expectedPart);
+      if (Number.isFinite(actualNumber) && Number.isFinite(expectedNumber)) return Math.abs(actualNumber - expectedNumber) <= 0.01;
+      return actualPart === expectedPart;
+    });
+    if (match < 0) return false;
+    remaining.splice(match, 1);
+    return true;
+  });
+}
+
 function validateMetric(metric: string, result: MetricResult, context: ValidationContext, hard: boolean, issues: ValidationIssue[]): void {
   const base = `metrics.${metric}`;
   if (!result || typeof result !== "object") { issues.push({ path: base, message: "metric result must be an object" }); return; }
@@ -28,7 +56,7 @@ function validateMetric(metric: string, result: MetricResult, context: Validatio
   for (const [index, ref] of evidence.inputRefs.entries()) {
     const actual = valueAt(context.rendered.fields, ref.field);
     if (actual === undefined) issues.push({ path: `${base}.evidence.inputRefs[${index}]`, message: "input field does not resolve" });
-    else if (ref.value !== undefined && ref.value !== null && String(actual) !== ref.value) issues.push({ path: `${base}.evidence.inputRefs[${index}]`, message: "input value does not match" });
+    else if (ref.value !== undefined && ref.value !== null && !inputValuesMatch(actual, ref.value)) issues.push({ path: `${base}.evidence.inputRefs[${index}]`, message: "input value does not match" });
   }
   for (const [index, absence] of evidence.absences.entries()) {
     if ((absence.scope === "section_missing" || absence.scope === "required_field_empty") && context.rendered.sections.some((section) => section.path === absence.expected || section.name === absence.expected)) issues.push({ path: `${base}.evidence.absences[${index}]`, message: "declared section/field is present" });

@@ -121,6 +121,7 @@ export const evalComparisonRuns = pgTable("eval_comparison_runs", {
   status: text("status").notNull().default("queued"),
   userKeys: jsonb("user_keys").$type<string[]>().notNull().default([]),
   readingTypes: jsonb("reading_types").$type<string[]>().notNull().default([]),
+  readingSubtypes: jsonb("reading_subtypes").$type<string[]>().notNull().default([]),
   requestedCases: integer("requested_cases").notNull().default(0),
   completedCases: integer("completed_cases").notNull().default(0),
   failedCases: integer("failed_cases").notNull().default(0),
@@ -128,6 +129,12 @@ export const evalComparisonRuns = pgTable("eval_comparison_runs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   startedAt: timestamp("started_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  pricingSnapshotId: uuid("pricing_snapshot_id").references(() => evalPricingSnapshots.id),
+  pricingStatus: text("pricing_status"),
+  costCurrency: text("cost_currency"),
+  // Pre-run no-call estimate captured at run start ({ cases, estimate, tokens,
+  // assumptions, pricedWith }) for estimate-versus-actual variance. Immutable.
+  costEstimate: jsonb("cost_estimate"),
 }, (t) => ({
   comparisonIdx: index("eval_comparison_runs_comparison_idx").on(t.comparisonId, t.createdAt),
   datasetIdx: index("eval_comparison_runs_dataset_idx").on(t.datasetId),
@@ -152,7 +159,7 @@ export const evalDatasetOutputs = pgTable("eval_dataset_outputs", {
   datasetIdx: index("eval_dataset_outputs_dataset_idx").on(t.datasetId),
 }));
 
-export const jobStatuses = ["pending", "generating", "checking", "judging", "completed", "failed"] as const;
+export const jobStatuses = ["pending", "generating", "checking", "judging", "completed", "failed", "cancelled"] as const;
 export type JobStatus = (typeof jobStatuses)[number];
 
 export const evalJobs = pgTable("eval_jobs", {
@@ -258,12 +265,15 @@ export const evalReferenceGenerations = pgTable("eval_reference_generations", {
   tokensCompletion: integer("tokens_completion"),
   tokensTotal: integer("tokens_total"),
   tokensCached: integer("tokens_cached"),
+  tokensCacheWrite: integer("tokens_cache_write"),
   tokensReasoning: integer("tokens_reasoning"),
   tokensAcceptedPrediction: integer("tokens_accepted_prediction"),
   tokensRejectedPrediction: integer("tokens_rejected_prediction"),
   systemPromptTokens: integer("system_prompt_tokens"),
   userPromptTokens: integer("user_prompt_tokens"),
   assistantContextTokens: integer("assistant_context_tokens"),
+  promptCharacterCount: integer("prompt_character_count"),
+  tokenBreakdownSource: text("token_breakdown_source"),
   latencyMs: integer("latency_ms"),
   costUsd: real("cost_usd"),
   promptHash: text("prompt_hash"),
@@ -301,14 +311,20 @@ export const evalGenerations = pgTable("eval_generations", {
   tokensCompletion: integer("tokens_completion"),
   tokensTotal: integer("tokens_total"),
   tokensCached: integer("tokens_cached"),
+  tokensCacheWrite: integer("tokens_cache_write"),
   tokensReasoning: integer("tokens_reasoning"),
-  tokensAcceptedPrediction: integer("tokens_accepted_prediction"),
-  tokensRejectedPrediction: integer("tokens_rejected_prediction"),
   systemPromptTokens: integer("system_prompt_tokens"),
   userPromptTokens: integer("user_prompt_tokens"),
   assistantContextTokens: integer("assistant_context_tokens"),
+  promptCharacterCount: integer("prompt_character_count"),
+  tokenBreakdownSource: text("token_breakdown_source"),
+  tokensAcceptedPrediction: integer("tokens_accepted_prediction"),
+  tokensRejectedPrediction: integer("tokens_rejected_prediction"),
   latencyMs: integer("latency_ms"),
   costUsd: real("cost_usd"),
+  costStatus: text("cost_status"), // known | unknown | partial
+  costSource: text("cost_source"), // provider | snapshot | none
+  attempt: integer("attempt"),
   promptHash: text("prompt_hash"),
   responseHash: text("response_hash"),
   responseCharacterCount: integer("response_character_count"),
@@ -364,12 +380,70 @@ export const evalJudgeScores = pgTable("eval_judge_scores", {
   tokensCompletion: integer("tokens_completion"),
   tokensTotal: integer("tokens_total"),
   tokensCached: integer("tokens_cached"),
+  tokensCacheWrite: integer("tokens_cache_write"),
   tokensReasoning: integer("tokens_reasoning"),
+  systemPromptTokens: integer("system_prompt_tokens"),
+  userPromptTokens: integer("user_prompt_tokens"),
+  assistantContextTokens: integer("assistant_context_tokens"),
+  promptCharacterCount: integer("prompt_character_count"),
+  tokenBreakdownSource: text("token_breakdown_source"),
   providerMetadata: jsonb("provider_metadata"),
   latencyMs: integer("latency_ms"),
   costUsd: real("cost_usd"),
+  costStatus: text("cost_status"), // known | unknown | partial
+  costSource: text("cost_source"), // provider | snapshot | none
+  attempt: integer("attempt"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// One immutable telemetry row for every outbound LLM request attempt. Result
+// tables above contain successful artifacts; this table also records failures,
+// retries, latency, and the usage fields available before a result is parsed.
+export const llmRequestAttemptStatuses = ["started", "succeeded", "failed", "cancelled"] as const;
+export type LlmRequestAttemptStatus = (typeof llmRequestAttemptStatuses)[number];
+
+export const llmRequestKinds = ["generation", "judge"] as const;
+export type LlmRequestKind = (typeof llmRequestKinds)[number];
+
+export const evalLlmRequestAttempts = pgTable("eval_llm_request_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  jobId: uuid("job_id").notNull().references(() => evalJobs.id),
+  runId: uuid("run_id").references(() => evalComparisonRuns.id),
+  requestKind: text("request_kind").notNull(), // generation | judge
+  judgeRole: text("judge_role"), // primary | secondary
+  requestId: text("request_id").notNull(),
+  attempt: integer("attempt").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  endpoint: text("endpoint").notNull(),
+  status: text("status").notNull().default("started"),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  latencyMs: integer("latency_ms"),
+  providerRequestId: text("provider_request_id"),
+  tokensPrompt: integer("tokens_prompt"),
+  tokensCompletion: integer("tokens_completion"),
+  tokensTotal: integer("tokens_total"),
+  tokensCached: integer("tokens_cached"),
+  tokensCacheWrite: integer("tokens_cache_write"),
+  tokensReasoning: integer("tokens_reasoning"),
+  tokensAcceptedPrediction: integer("tokens_accepted_prediction"),
+  tokensRejectedPrediction: integer("tokens_rejected_prediction"),
+  systemPromptTokens: integer("system_prompt_tokens"),
+  userPromptTokens: integer("user_prompt_tokens"),
+  assistantContextTokens: integer("assistant_context_tokens"),
+  promptCharacterCount: integer("prompt_character_count"),
+  tokenBreakdownSource: text("token_breakdown_source"),
+  costUsd: real("cost_usd"),
+  costStatus: text("cost_status"),
+  costSource: text("cost_source"),
+  providerMetadata: jsonb("provider_metadata"),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  jobIdx: index("eval_llm_request_attempts_job_idx").on(t.jobId, t.createdAt),
+  requestIdx: index("eval_llm_request_attempts_request_idx").on(t.requestId, t.attempt),
+}));
 
 export const evalHumanReviewQueue = pgTable("eval_human_review_queue", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -514,6 +588,9 @@ export const evalJudgementsV2 = pgTable("eval_judgements_v2", {
   track: text("track").notNull(),
   userId: text("user_id").notNull(),
   modelRef: text("model_ref").notNull(),
+  jobId: uuid("job_id").references(() => evalJobs.id),
+  judgeRole: text("judge_role").notNull(), // primary | secondary
+  judgeProvider: text("judge_provider").notNull(),
   judgeModel: text("judge_model").notNull(),
   judgeEffort: text("judge_effort").notNull(),
   kernelHash: text("kernel_hash").notNull(),
@@ -538,5 +615,54 @@ export const evalRunManifests = pgTable("eval_run_manifests", {
   gitSha: text("git_sha"),
   bootstrapSeed: text("bootstrap_seed").notNull(),
   status: text("status").notNull(),
+  reportSnapshot: jsonb("report_snapshot"),
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Pricing snapshots (migration 0011). One snapshot per sync of
+// config/pricing-catalog.yaml; snapshots are immutable and append-only — a
+// sync that fails catalog validation writes a 'failed' row and leaves the
+// previous 'valid' snapshot untouched.
+export const pricingSnapshotStatuses = ["valid", "failed"] as const;
+export type PricingSnapshotStatus = (typeof pricingSnapshotStatuses)[number];
+
+export const pricingUsageModes = ["standard", "batch", "priority", "other"] as const;
+export type PricingUsageMode = (typeof pricingUsageModes)[number];
+
+export const evalPricingSnapshots = pgTable("eval_pricing_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  status: text("status").notNull(), // valid | failed
+  triggeredBy: text("triggered_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  sourceSummary: jsonb("source_summary"),
+  errorSummary: text("error_summary"),
+}, (t) => ({
+  statusCreatedIdx: index("eval_pricing_snapshots_status_idx").on(t.status, t.createdAt),
+}));
+
+// Rates are real/nullable by design: a provider that does not publish a field
+// (e.g. cache pricing) leaves it NULL, never 0 — 0 would read as "free".
+// Money math rule: never coerce null→0, and round only at display time.
+export const evalPricingRates = pgTable("eval_pricing_rates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  snapshotId: uuid("snapshot_id").notNull().references(() => evalPricingSnapshots.id),
+  provider: text("provider").notNull(),
+  modelId: text("model_id").notNull(),
+  usageMode: text("usage_mode").notNull().default("standard"),
+  inputUsdPerMillion: real("input_usd_per_million"),
+  outputUsdPerMillion: real("output_usd_per_million"),
+  cacheReadUsdPerMillion: real("cache_read_usd_per_million"),
+  cacheWriteUsdPerMillion: real("cache_write_usd_per_million"),
+  currency: text("currency").notNull().default("USD"),
+  effectiveFrom: text("effective_from"),
+  effectiveTo: text("effective_to"),
+  sourceUrl: text("source_url"),
+  sourceHash: text("source_hash"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  snapshotModelUnique: unique().on(t.snapshotId, t.provider, t.modelId, t.usageMode),
+  modelLookupIdx: index("eval_pricing_rates_model_idx").on(t.provider, t.modelId),
+}));

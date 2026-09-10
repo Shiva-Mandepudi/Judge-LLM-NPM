@@ -21,9 +21,16 @@ export const openaiProvider: JudgeProvider = {
     });
     const latencyMs = Date.now() - start;
     if (!res.ok) throw new Error(`OpenAI judge call failed: ${res.status} ${await res.text()}`);
+    const providerRequestId = res.headers.get("x-request-id") ?? undefined;
     const json = (await res.json()) as {
       choices: Array<{ message: { content: string } }>;
-      usage: { prompt_tokens: number; completion_tokens: number };
+      usage: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+        completion_tokens_details?: { reasoning_tokens?: number };
+      };
     };
     const content = json.choices[0]?.message.content;
     if (!content) throw new Error("OpenAI judge call returned no content");
@@ -32,6 +39,10 @@ export const openaiProvider: JudgeProvider = {
       raw: json,
       promptTokens: json.usage.prompt_tokens,
       completionTokens: json.usage.completion_tokens,
+      totalTokens: json.usage.total_tokens,
+      cacheReadInputTokens: json.usage.prompt_tokens_details?.cached_tokens,
+      reasoningTokens: json.usage.completion_tokens_details?.reasoning_tokens,
+      providerRequestId,
       latencyMs,
       costUsd: null,
     };

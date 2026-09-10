@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db.js";
+import type { Db } from "../../db.js";
 import { evalJudgementsV2, evalModelMap, evalRows, evalRunManifests } from "../../../shared/schema.js";
 import type { Row } from "../../core/contracts/rendered-content.js";
 import type { JudgeRun } from "../../core/judge/runner.js";
@@ -71,11 +72,15 @@ export async function persistPhase0Artifacts(
 }
 
 export async function persistJudgeResult(input: {
+  db: Db;
   rowId: string;
   runId: string;
+  jobId: string | null;
   track: string;
   userId: string;
   modelRef: string;
+  judgeRole: "primary" | "secondary";
+  judgeProvider: string;
   judgeModel: string;
   judgeEffort: string;
   kernelHash: string;
@@ -83,12 +88,15 @@ export async function persistJudgeResult(input: {
   schemaHash: string;
   result: JudgeRun;
 }): Promise<void> {
-  await db.insert(evalJudgementsV2).values({
+  await input.db.insert(evalJudgementsV2).values({
     rowId: input.rowId,
     runId: input.runId,
+    jobId: input.jobId,
     track: input.track,
     userId: input.userId,
     modelRef: input.modelRef,
+    judgeRole: input.judgeRole,
+    judgeProvider: input.judgeProvider,
     judgeModel: input.judgeModel,
     judgeEffort: input.judgeEffort,
     kernelHash: input.kernelHash,
@@ -100,5 +108,25 @@ export async function persistJudgeResult(input: {
     judgeStatus: input.result.status,
     attempt: input.result.attempts,
     response: { validated: input.result.response ?? null, raw: input.result.raw ?? null },
-  }).onConflictDoNothing();
+  }).onConflictDoUpdate({
+    target: [evalJudgementsV2.rowId, evalJudgementsV2.attempt],
+    set: {
+      jobId: input.jobId,
+      track: input.track,
+      userId: input.userId,
+      modelRef: input.modelRef,
+      judgeRole: input.judgeRole,
+      judgeProvider: input.judgeProvider,
+      judgeModel: input.judgeModel,
+      judgeEffort: input.judgeEffort,
+      kernelHash: input.kernelHash,
+      rubricPackHash: input.rubricPackHash,
+      schemaHash: input.schemaHash,
+      usage: input.result.usage,
+      latencyMs: input.result.latencyMs,
+      costUsd: input.result.costUsd,
+      judgeStatus: input.result.status,
+      response: { validated: input.result.response ?? null, raw: input.result.raw ?? null },
+    },
+  });
 }

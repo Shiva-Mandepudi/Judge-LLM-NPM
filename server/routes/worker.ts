@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db.js";
 import { evalIdempotencyKeys, evalJobs } from "../../shared/schema.js";
 import { requireCloudTasksAuth } from "../auth/service-auth.js";
-import { runJob } from "../workers/job-runner.js";
+import { runComparisonJob } from "../workers/comparison-job-runner.js";
 import { logger } from "../lib/logger.js";
 
 export const workerRouter = Router();
@@ -21,8 +21,8 @@ workerRouter.post("/run-job", requireCloudTasksAuth(), async (req, res) => {
     res.status(200).json({ skipped: "unknown_job" });
     return;
   }
-  if (job.status === "completed") {
-    res.status(200).json({ skipped: "already_completed" });
+  if (job.status === "completed" || job.status === "cancelled") {
+    res.status(200).json({ skipped: job.status === "cancelled" ? "cancelled" : "already_completed" });
     return;
   }
 
@@ -32,7 +32,7 @@ workerRouter.post("/run-job", requireCloudTasksAuth(), async (req, res) => {
   }
 
   try {
-    await runJob(db, jobId);
+    await runComparisonJob(db, jobId);
     res.status(200).json({ ok: true });
   } catch (err) {
     logger.error("worker_run_job_failed", { jobId, error: String(err) });

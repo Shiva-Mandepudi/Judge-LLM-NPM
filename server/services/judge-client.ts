@@ -2,6 +2,7 @@ import { z } from "zod";
 import { resolveSecret } from "../lib/secrets.js";
 import { getProvider } from "../providers/provider-factory.js";
 import { buildJudgePrompt, type JudgePromptInput } from "./judge-prompts.js";
+import { promptMetrics } from "./prompt-metrics.js";
 import type { JudgeConfig, ProviderBinding } from "../../shared/config-schema.js";
 
 const legacyDimensionScoreSchema = z.record(z.object({ score: z.number().int().min(1).max(5), justification: z.string() }));
@@ -25,6 +26,25 @@ export interface JudgeCallResult {
   rubricVersion: string;
   latencyMs: number;
   costUsd: number | null;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
+  reasoningTokens?: number;
+  systemPromptTokens: number;
+  userPromptTokens: number;
+  assistantContextTokens: number;
+  promptCharacterCount: number;
+  tokenBreakdownSource: string;
+  systemPromptHash: string;
+  userPromptHash: string;
+  providerRequestId?: string;
+}
+
+export function judgePromptMetrics(promptInput: JudgePromptInput) {
+  const built = buildJudgePrompt(promptInput);
+  return promptMetrics(built.systemPrompt, built.userPrompt);
 }
 
 const secretCache = new Map<string, string>();
@@ -56,6 +76,7 @@ export async function callJudge(
   );
 
   const parsed = judgeOutputSchema.parse(result.parsed);
+  const metrics = promptMetrics(built.systemPrompt, built.userPrompt);
   return {
     output: parsed,
     provider: binding.provider,
@@ -63,5 +84,19 @@ export async function callJudge(
     rubricVersion: built.rubricVersion,
     latencyMs: result.latencyMs,
     costUsd: result.costUsd ?? null,
+    promptTokens: result.promptTokens,
+    completionTokens: result.completionTokens,
+    totalTokens: result.totalTokens,
+    cacheReadInputTokens: result.cacheReadInputTokens,
+    cacheWriteInputTokens: result.cacheWriteInputTokens,
+    reasoningTokens: result.reasoningTokens,
+    systemPromptTokens: result.systemPromptTokens ?? metrics.systemPromptTokens,
+    userPromptTokens: result.userPromptTokens ?? metrics.userPromptTokens,
+    assistantContextTokens: result.assistantContextTokens ?? metrics.assistantContextTokens,
+    promptCharacterCount: result.promptCharacterCount ?? metrics.promptCharacterCount,
+    tokenBreakdownSource: result.tokenBreakdownSource ?? metrics.tokenBreakdownSource,
+    systemPromptHash: result.systemPromptHash ?? metrics.systemPromptHash,
+    userPromptHash: result.userPromptHash ?? metrics.userPromptHash,
+    providerRequestId: result.providerRequestId,
   };
 }

@@ -1,53 +1,26 @@
 import crypto from "node:crypto";
 import type { JudgeProvider, JudgeCompletionRequest, JudgeCompletionResult } from "./types.js";
 
-interface JsonSchemaObject {
-  properties?: Record<string, JsonSchemaObject>;
+type Schema = { properties?: Record<string, Schema & { required?: string[] }> };
+
+function candidateQuote(prompt: string): string {
+  const section = prompt.split("## READING UNDER REVIEW\n")[1]?.split("## SILVER REFERENCE\n")[0] ?? "reading under review";
+  const text = section.replace(/^### [^\n]+\n/gm, "").replace(/\s+/g, " ").trim();
+  return text.slice(0, 80);
 }
 
-function schemaLabels(schema: Record<string, unknown>, path: string): string[] {
-  const root = schema as JsonSchemaObject;
-  return Object.keys(root.properties?.[path]?.properties ?? {});
-}
-
-function hardGateKeysForLabel(schema: Record<string, unknown>, label: string): string[] {
-  const root = schema as JsonSchemaObject;
-  const perLabel = root.properties?.hardGateResults?.properties?.[label];
-  return Object.keys(perLabel?.properties ?? {});
-}
-
-// Deterministic fake judge for local dev / tests. Never used outside
-// NODE_ENV=test or explicit local dev opt-in (see provider-factory.ts guard).
 export const mockProvider: JudgeProvider = {
   name: "mock",
   async complete(req: JudgeCompletionRequest): Promise<JudgeCompletionResult> {
-    const labels = schemaLabels(req.jsonSchema, "hardGateResults");
-    const hardGateResults: Record<string, Record<string, { pass: boolean; violationDetail: string | null }>> = {};
-
-    for (const label of labels) {
-      const gates: Record<string, { pass: boolean; violationDetail: string | null }> = {};
-      hardGateKeysForLabel(req.jsonSchema, label).forEach((key) => {
-        gates[key] = { pass: true, violationDetail: null };
-      });
-      hardGateResults[label] = gates;
+    const schema = req.jsonSchema as Schema;
+    const metricProperties = schema.properties?.metrics?.properties ?? {};
+    const quote = candidateQuote(req.userPrompt);
+    const metrics: Record<string, unknown> = {};
+    for (const [key, metric] of Object.entries(metricProperties)) {
+      const hard = metric.required?.includes("gate") ?? false;
+      metrics[key] = { score: 3, abstainReason: null, evidence: { candidateQuotes: [{ quote }], referenceQuotes: [], inputRefs: [], absences: [], rationale: "deterministic mock evidence" }, ...(hard ? { gate: "pass", violation: null } : {}) };
     }
-
-    const winnerHash = crypto.createHash("sha256").update(req.userPrompt).digest();
-    const winnerRoll = winnerHash[winnerHash.length - 1] % 10;
-    const winner = winnerRoll < 5 ? "Tie" : winnerRoll < 8 ? "A" : "B";
-
-    return {
-      parsed: {
-        hardGateResults,
-        ...(labels.length === 2 ? { pairwiseWinner: winner } : {}),
-        rationale: "mock rationale",
-        confidence: { level: "medium", reason: "mock provider, deterministic seed" },
-      },
-      raw: { mock: true },
-      promptTokens: 300,
-      completionTokens: 150,
-      latencyMs: 5,
-      costUsd: 0,
-    };
+    const digest = crypto.createHash("sha256").update(req.userPrompt).digest("hex");
+    return { parsed: { rowId: req.userPrompt.match(/rowId[^a-zA-Z0-9-]+([a-zA-Z0-9-]+)/)?.[1] ?? "mock-row", metrics, overall: { summary: `mock-${digest.slice(0, 8)}`, confidence: "medium", confidenceReason: "deterministic mock provider" } }, raw: { mock: true }, promptTokens: 300, completionTokens: 150, totalTokens: 450, latencyMs: 5, costUsd: 0 };
   },
 };

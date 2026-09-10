@@ -1,0 +1,337 @@
+# Official LLM pricing catalog — the ONLY source of paid-run prices.
+#
+# As-of: 2026-09-10 (manually verified against the provider pricing pages
+# below; the sync drift check tests page reachability, not price content).
+# Review this catalog before each manual sync and paid-run cost attribution.
+#
+# Rules:
+# - Rates are USD per 1M tokens. A field the provider does not publish stays
+#   null — never write 0 (0 would read as "free" in cost math).
+# - usageMode: "standard" always; "batch" only where the provider publishes
+#   batch pricing. "priority"/"other" are accepted by validation for future
+#   entries.
+# - effectiveFrom is the provider-published effective/release date (ISO); null
+#   when unknown. Never invent a date.
+# - Entries with any null rate count as "unresolved" in sync summaries and the
+#   pricing status endpoint.
+
+asOf: "2026-09-10"
+
+# Drift check targets: sync fetches each page (short timeout, non-fatal) and
+# records reachability per provider in the snapshot's source_summary.
+providers:
+  openai:
+    pricingPageUrl: "https://platform.openai.com/docs/pricing"
+  anthropic:
+    pricingPageUrl: "https://www.anthropic.com/pricing"
+  gemini:
+    pricingPageUrl: "https://ai.google.dev/gemini-api/docs/pricing"
+
+entries:
+  # ---------------- OpenAI (https://platform.openai.com/docs/pricing) ----------------
+  - provider: openai
+    modelId: gpt-5.2
+    usageMode: standard
+    input: 1.75
+    output: 14.00
+    cacheRead: 0.175
+    cacheWrite: null # OpenAI does not publish a separate cache-write rate
+    effectiveFrom: "2025-12-11"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-5.4
+    usageMode: standard
+    input: 2.50
+    output: 15.00
+    cacheRead: 0.25
+    cacheWrite: null # OpenAI does not publish a separate cache-write rate
+    effectiveFrom: "2026-03-05"
+    sourceUrl: "https://developers.openai.com/api/docs/models/gpt-5.4"
+
+  - provider: openai
+    modelId: gpt-5.1
+    usageMode: standard
+    input: 1.25
+    output: 10.00
+    cacheRead: 0.125
+    cacheWrite: null
+    effectiveFrom: "2025-11-13"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-5
+    usageMode: standard
+    input: 1.25
+    output: 10.00
+    cacheRead: 0.125
+    cacheWrite: null
+    effectiveFrom: "2025-08-07"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-5
+    usageMode: batch
+    input: 0.625
+    output: 5.00
+    cacheRead: null # cached-input batch rate not separately published
+    cacheWrite: null
+    effectiveFrom: "2025-08-07"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-5-mini
+    usageMode: standard
+    input: 0.25
+    output: 2.00
+    cacheRead: 0.025
+    cacheWrite: null
+    effectiveFrom: "2025-08-07"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-4.1
+    usageMode: standard
+    input: 2.00
+    output: 8.00
+    cacheRead: 0.50
+    cacheWrite: null
+    effectiveFrom: "2025-04-14"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-4.1
+    usageMode: batch
+    input: 1.00
+    output: 4.00
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: "2025-04-14"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-4.1-mini
+    usageMode: standard
+    input: 0.40
+    output: 1.60
+    cacheRead: 0.10
+    cacheWrite: null
+    effectiveFrom: "2025-04-14"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-4o
+    usageMode: standard
+    input: 2.50
+    output: 10.00
+    cacheRead: 1.25
+    cacheWrite: null
+    effectiveFrom: "2024-08-06"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-4o
+    usageMode: batch
+    input: 1.25
+    output: 5.00
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: "2024-08-06"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-4o-mini
+    usageMode: standard
+    input: 0.15
+    output: 0.60
+    cacheRead: 0.075
+    cacheWrite: null
+    effectiveFrom: "2024-07-18"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: gpt-4o-mini
+    usageMode: batch
+    input: 0.075
+    output: 0.30
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: "2024-07-18"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: o3
+    usageMode: standard
+    input: 2.00
+    output: 8.00
+    cacheRead: 0.50
+    cacheWrite: null
+    effectiveFrom: "2025-06-10" # date of the published o3 price reduction
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  - provider: openai
+    modelId: o4-mini
+    usageMode: standard
+    input: 1.10
+    output: 4.40
+    cacheRead: 0.275
+    cacheWrite: null
+    effectiveFrom: "2025-04-16"
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  # OpenAI pricing page, standard short-context tier.
+  - provider: openai
+    modelId: gpt-5.6-sol
+    usageMode: standard
+    input: 2.00
+    output: 10.00
+    cacheRead: 0.20
+    cacheWrite: 2.50
+    effectiveFrom: null
+    sourceUrl: "https://platform.openai.com/docs/pricing"
+
+  # ---------------- Anthropic (https://www.anthropic.com/pricing) ----------------
+  - provider: anthropic
+    modelId: claude-opus-4-5
+    usageMode: standard
+    input: 5.00
+    output: 25.00
+    cacheRead: 0.50
+    cacheWrite: 6.25 # 5m prompt-cache write
+    effectiveFrom: "2025-11-24"
+    sourceUrl: "https://www.anthropic.com/pricing"
+
+  - provider: anthropic
+    modelId: claude-sonnet-5
+    usageMode: standard
+    input: 2.00
+    output: 10.00
+    cacheRead: 0.20
+    cacheWrite: 2.50
+    effectiveFrom: null
+    sourceUrl: "https://docs.anthropic.com/en/docs/about-claude/pricing"
+
+  - provider: anthropic
+    modelId: claude-sonnet-5
+    usageMode: batch
+    input: 1.00
+    output: 5.00
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: null
+    sourceUrl: "https://docs.anthropic.com/en/docs/about-claude/pricing"
+
+  - provider: anthropic
+    modelId: claude-sonnet-4-5
+    usageMode: standard
+    input: 3.00
+    output: 15.00
+    cacheRead: 0.30
+    cacheWrite: 3.75
+    effectiveFrom: "2025-09-29"
+    sourceUrl: "https://www.anthropic.com/pricing"
+
+  - provider: anthropic
+    modelId: claude-sonnet-4-5
+    usageMode: batch
+    input: 1.50
+    output: 7.50
+    cacheRead: null # batch cache rates not separately published
+    cacheWrite: null
+    effectiveFrom: "2025-09-29"
+    sourceUrl: "https://www.anthropic.com/pricing"
+
+  - provider: anthropic
+    modelId: claude-haiku-4-5
+    usageMode: standard
+    input: 1.00
+    output: 5.00
+    cacheRead: 0.10
+    cacheWrite: 1.25
+    effectiveFrom: "2025-10-15"
+    sourceUrl: "https://www.anthropic.com/pricing"
+
+  - provider: anthropic
+    modelId: claude-haiku-4-5
+    usageMode: batch
+    input: 0.50
+    output: 2.50
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: "2025-10-15"
+    sourceUrl: "https://www.anthropic.com/pricing"
+
+  - provider: anthropic
+    modelId: claude-opus-4-1
+    usageMode: standard
+    input: 15.00
+    output: 75.00
+    cacheRead: 1.50
+    cacheWrite: 18.75
+    effectiveFrom: "2025-08-05"
+    sourceUrl: "https://www.anthropic.com/pricing"
+
+  # ---------------- Gemini (https://ai.google.dev/gemini-api/docs/pricing) ----------------
+  # NOTE: several Gemini models are tiered by prompt size (e.g. 2.5 Pro is
+  # $1.25/$10.00 up to 200k prompt tokens, $2.50/$15.00 above). This catalog
+  # records the <=200k tier; runs with larger prompts must be flagged rather
+  # than silently priced at this tier.
+  - provider: gemini
+    modelId: gemini-3-pro-preview
+    usageMode: standard
+    input: 2.00 # <=200k prompt tokens tier
+    output: 12.00
+    cacheRead: null # not confident in the published cached-input rate — verify
+    cacheWrite: null
+    effectiveFrom: "2025-11-18"
+    sourceUrl: "https://ai.google.dev/gemini-api/docs/pricing"
+
+  - provider: gemini
+    modelId: gemini-2.5-pro
+    usageMode: standard
+    input: 1.25 # <=200k prompt tokens tier
+    output: 10.00
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: null
+    sourceUrl: "https://ai.google.dev/gemini-api/docs/pricing"
+
+  - provider: gemini
+    modelId: gemini-2.5-pro
+    usageMode: batch
+    input: 0.625
+    output: 5.00
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: null
+    sourceUrl: "https://ai.google.dev/gemini-api/docs/pricing"
+
+  - provider: gemini
+    modelId: gemini-2.5-flash
+    usageMode: standard
+    input: 0.30
+    output: 2.50
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: null
+    sourceUrl: "https://ai.google.dev/gemini-api/docs/pricing"
+
+  - provider: gemini
+    modelId: gemini-2.5-flash
+    usageMode: batch
+    input: 0.15
+    output: 1.25
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: null
+    sourceUrl: "https://ai.google.dev/gemini-api/docs/pricing"
+
+  - provider: gemini
+    modelId: gemini-2.5-flash-lite
+    usageMode: standard
+    input: 0.10
+    output: 0.40
+    cacheRead: null
+    cacheWrite: null
+    effectiveFrom: null
+    sourceUrl: "https://ai.google.dev/gemini-api/docs/pricing"

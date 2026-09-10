@@ -38,7 +38,7 @@ async function signIn() {
   error.textContent = "";
   if (!secret) { error.textContent = "Enter the admin shared secret."; return; }
   try {
-    const response = await fetch("/api/admin/datasets", { headers: { "x-judge-admin-secret": secret, "x-judge-actor": actor } });
+    const response = await fetch("/api/admin/comparisons", { headers: { "x-judge-admin-secret": secret, "x-judge-actor": actor } });
     if (response.status === 403) { error.textContent = "Invalid secret — access denied."; return; }
     if (!response.ok) { error.textContent = `Sign-in check failed (HTTP ${response.status}). Try again.`; return; }
     sessionStorage.setItem(SECRET_KEY, secret);

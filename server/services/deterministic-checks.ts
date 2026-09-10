@@ -44,13 +44,14 @@ export function runDeterministicChecks(params: {
     detail: params.schemaValid ? undefined : params.schemaErrors.join("; "),
   });
 
+  const hasSectionsField = Object.prototype.hasOwnProperty.call(params.output, "sections");
   const sections = Array.isArray((params.output as { sections?: unknown[] }).sections)
     ? ((params.output as { sections?: unknown[] }).sections as unknown[])
     : [];
   results.push({
     checkName: "required_sections_present",
-    passed: sections.length > 0,
-    detail: sections.length === 0 ? "output has no non-empty sections array" : undefined,
+    passed: !hasSectionsField || sections.length > 0,
+    detail: !hasSectionsField ? "not applicable: production reading uses its configured object shape" : sections.length === 0 ? "output has no non-empty sections array" : undefined,
   });
 
   const hasTruncatedSection = sections.some(
@@ -58,7 +59,7 @@ export function runDeterministicChecks(params: {
   );
   results.push({
     checkName: "no_truncated_sections",
-    passed: !hasTruncatedSection,
+    passed: !hasSectionsField || !hasTruncatedSection,
     detail: hasTruncatedSection ? "one or more sections have suspiciously short/empty body text" : undefined,
   });
 

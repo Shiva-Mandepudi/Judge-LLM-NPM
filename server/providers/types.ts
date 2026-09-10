@@ -14,6 +14,17 @@ export interface JudgeCompletionResult {
   latencyMs: number;
   costUsd: number | null;
   cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
+  totalTokens?: number;
+  reasoningTokens?: number;
+  systemPromptTokens?: number;
+  userPromptTokens?: number;
+  assistantContextTokens?: number;
+  promptCharacterCount?: number;
+  tokenBreakdownSource?: string;
+  systemPromptHash?: string;
+  userPromptHash?: string;
+  providerRequestId?: string;
 }
 
 export interface JudgeProvider {

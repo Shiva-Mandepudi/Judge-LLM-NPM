@@ -18,7 +18,11 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const result = spawnSync(process.execPath, ["--import", "dotenv/config", "--import", "tsx", "--test", ...files], {
+// Integration suites share one dev database, so test files must run one at a
+// time: concurrent files each inserting pricing snapshots race on assertions
+// about the global "latest valid snapshot" (observed flake: pricing-snapshots
+// vs cost-analysis). Serialize with --test-concurrency=1.
+const result = spawnSync(process.execPath, ["--import", "dotenv/config", "--import", "tsx", "--test", "--test-concurrency=1", ...files], {
   stdio: "inherit",
   shell: false,
 });

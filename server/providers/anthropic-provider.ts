@@ -25,9 +25,10 @@ export const anthropicProvider: JudgeProvider = {
     });
     const latencyMs = Date.now() - start;
     if (!res.ok) throw new Error(`Anthropic judge call failed: ${res.status} ${await res.text()}`);
+    const providerRequestId = res.headers.get("request-id") ?? undefined;
     const json = (await res.json()) as {
       content: Array<{ type: string; text?: string }>;
-      usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number };
+      usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
     };
     const text = json.content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("");
     if (!text) throw new Error("Anthropic judge call returned no JSON content");
@@ -37,6 +38,9 @@ export const anthropicProvider: JudgeProvider = {
       promptTokens: json.usage.input_tokens,
       completionTokens: json.usage.output_tokens,
       cacheReadInputTokens: json.usage.cache_read_input_tokens ?? 0,
+      cacheWriteInputTokens: json.usage.cache_creation_input_tokens ?? 0,
+      totalTokens: json.usage.input_tokens + json.usage.output_tokens,
+      providerRequestId,
       latencyMs,
       costUsd: null,
     };

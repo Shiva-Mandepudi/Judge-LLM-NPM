@@ -33,9 +33,30 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function describeTransportError(error: unknown, baseUrl: string): string {
+  if (!(error instanceof TypeError)) return error instanceof Error ? error.message : String(error);
+  const cause = (error as TypeError & { cause?: { code?: string; message?: string } }).cause;
+  const detail = cause?.code ?? cause?.message;
+  return `Cosmic Guidance is unreachable at ${baseUrl}${detail ? ` (${detail})` : ""}`;
+}
+
+export interface GenerationAttemptEvent {
+  attempt: number;
+  requestId: string;
+  model: string;
+  endpoint: string;
+  startedAt: Date;
+  completedAt: Date;
+  latencyMs: number;
+  status: "succeeded" | "failed";
+  response?: GenerationResponse;
+  error?: string;
+}
+
 export async function requestGeneration(
   request: GenerationRequest,
   retryPolicy: RetryPolicy,
+  options: { onAttemptStart?: (event: { attempt: number; requestId: string; model: string; endpoint: string; startedAt: Date }) => Promise<unknown>; onAttempt?: (event: GenerationAttemptEvent, context?: unknown) => Promise<void> } = {},
 ): Promise<GenerationResponse> {
   const baseUrl = process.env.COSMIC_GUIDANCE_INTERNAL_BASE_URL;
   if (!baseUrl) throw new Error("COSMIC_GUIDANCE_INTERNAL_BASE_URL is not configured.");
@@ -46,9 +67,14 @@ export async function requestGeneration(
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt++) {
+    const startedAt = new Date();
+    const startedMs = startedAt.getTime();
     const timestamp = Date.now().toString();
+    const endpoint = `${baseUrl}/api/internal/judge/generate`;
+    let attemptContext: unknown;
     try {
-      const res = await fetch(`${baseUrl}/api/internal/judge/generate`, {
+      attemptContext = await options.onAttemptStart?.({ attempt, requestId: parsedRequest.requestId, model: parsedRequest.model, endpoint, startedAt });
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -68,12 +94,45 @@ export async function requestGeneration(
       }
 
       const json = await res.json();
-      return generationResponseSchema.parse(json);
+      const response = generationResponseSchema.parse(json);
+      try {
+        await options.onAttempt?.({
+          attempt,
+          requestId: parsedRequest.requestId,
+          model: response.model,
+          endpoint,
+          startedAt,
+          completedAt: new Date(),
+          latencyMs: Date.now() - startedMs,
+          status: "succeeded",
+          response,
+        }, attemptContext);
+      } catch (error) {
+        throw new TelemetryCaptureError(error instanceof Error ? error.message : String(error));
+      }
+      return response;
     } catch (err) {
-      lastError = err;
+      if (err instanceof TelemetryCaptureError) throw err;
+      const message = describeTransportError(err, baseUrl);
+      lastError = new Error(message);
+      try {
+        await options.onAttempt?.({
+          attempt,
+          requestId: parsedRequest.requestId,
+          model: parsedRequest.model,
+          endpoint,
+          startedAt,
+          completedAt: new Date(),
+          latencyMs: Date.now() - startedMs,
+          status: "failed",
+          error: message,
+        }, attemptContext);
+      } catch (error) {
+        throw new TelemetryCaptureError(error instanceof Error ? error.message : String(error));
+      }
       if (err instanceof NonRetryableGenerationError || attempt === retryPolicy.maxAttempts) break;
       const backoff = Math.min(retryPolicy.baseBackoffMs * 2 ** (attempt - 1), retryPolicy.maxBackoffMs);
-      logger.warn("generation_retry", { attempt, backoff, error: String(err), requestId: parsedRequest.requestId });
+      logger.warn("generation_retry", { attempt, backoff, error: message, requestId: parsedRequest.requestId });
       await sleep(backoff);
     }
   }
@@ -81,3 +140,4 @@ export async function requestGeneration(
 }
 
 class NonRetryableGenerationError extends Error {}
+class TelemetryCaptureError extends Error {}

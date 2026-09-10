@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Judge LLM · Cost &amp; usage</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="index.html"><span class="brand-mark">✦</span><span>Judge LLM</span></a>
+    <button id="menu-button" class="mobile-menu secondary" aria-label="Open navigation">☰</button>
+    <p class="nav-label">Workspace</p>
+    <nav id="main-nav" class="nav">
+      <a data-nav href="index.html"><span class="nav-icon">⌂</span><span>Overview</span></a>
+      <a data-nav href="experiments.html"><span class="nav-icon">↗</span><span>Comparisons &amp; runs</span></a>
+      <a data-nav href="cost-usage.html"><span class="nav-icon">$</span><span>Cost &amp; usage</span></a>
+      <a data-nav href="dataset-users.html"><span class="nav-icon">♙</span><span>100 users</span></a>
+      <a data-nav href="reviews.html"><span class="nav-icon">✓</span><span>Reviews &amp; settings</span></a>
+    </nav>
+    <div class="sidebar-footer"><strong>Private service</strong>Evaluation artifacts only</div>
+  </aside>
+  <main class="main">
+    <header class="page-header"><div><p class="eyebrow">Workspace / cost &amp; usage</p><h1>Cost &amp; usage</h1><p class="lede">Observed provider cost per run, priced against the run’s immutable official-price snapshot. Unknown is never reported as $0.</p></div><div class="header-actions"><button id="sign-out" class="secondary">Sign out</button></div></header>
+
+    <section class="panel">
+      <div class="panel-header"><div><h2>Run selection</h2><p class="hint">Choose a run to load its authoritative cost analysis. All totals are computed server-side.</p></div><span id="cost-status" class="status"></span></div>
+      <div class="form-grid run-grid">
+        <div><label for="run-select">Run</label><select id="run-select"><option value="">Loading runs…</option></select></div>
+        <div><label for="comparison-select">Comparison <span class="muted">optional filter</span></label><select id="comparison-select"><option value="">All comparisons</option></select></div>
+        <div><label for="date-filter">Date range</label><select id="date-filter"><option value="all">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></div>
+        <div><label>&nbsp;</label><button id="refresh-data" class="secondary">Refresh</button></div>
+      </div>
+      <p class="hint" id="pricing-readout" style="margin:14px 0 0">Pricing snapshot: —</p>
+    </section>
+
+    <div id="analysis-body" class="hidden">
+      <div class="cards">
+        <div class="card"><span class="card-label">Total observed cost</span><strong id="card-total" class="card-value">—</strong><span class="card-note" id="card-total-note"></span></div>
+        <div class="card"><span class="card-label">Candidate generation</span><strong id="card-candidate" class="card-value">—</strong><span class="card-note" id="card-candidate-note"></span></div>
+        <div class="card"><span class="card-label">Primary judge</span><strong id="card-primary" class="card-value">—</strong><span class="card-note" id="card-primary-note"></span></div>
+        <div class="card"><span class="card-label">Secondary judge</span><strong id="card-secondary" class="card-value">—</strong><span class="card-note" id="card-secondary-note"></span></div>
+        <div class="card"><span class="card-label">Input / output tokens</span><strong id="card-tokens" class="card-value">—</strong><span class="card-note" id="card-tokens-note"></span></div>
+        <div class="card"><span class="card-label">Median / p95 latency</span><strong id="card-latency" class="card-value">—</strong><span class="card-note" id="card-latency-note"></span></div>
+        <div class="card"><span class="card-label">Cases</span><strong id="card-cases" class="card-value">—</strong><span class="card-note" id="card-cases-note"></span></div>
+        <div class="card"><span class="card-label">LLM request attempts</span><strong id="card-attempts" class="card-value">—</strong><span class="card-note" id="card-attempts-note"></span></div>
+      </div>
+
+      <div id="warnings-wrap"></div>
+
+      <section class="panel">
+        <div class="panel-header"><div><h2>Cost breakdown by reading</h2><p class="hint">Per-case cost percentiles come from per-job totals across candidate and judge calls.</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Reading</th><th>Depth</th><th>Model</th><th>Cases</th><th>Input tokens</th><th>Output tokens</th><th>Median cost</th><th>P95 cost</th><th>Median latency</th><th>P95 latency</th><th>Status</th></tr></thead><tbody id="readings-table"></tbody></table></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><div><h2>Cost breakdown by user</h2><p class="hint">Missing usage counts rows with no token usage reported by the provider.</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>User</th><th>Cases</th><th>Candidate cost</th><th>Judge cost</th><th>Total known cost</th><th>Missing usage</th><th>Status</th></tr></thead><tbody id="users-table"></tbody></table></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><div><h2>Cost drivers</h2><p class="hint">Largest known-cost contributors. Rows with unknown cost are excluded from the bars, never treated as zero.</p></div></div>
+        <div class="driver-grid">
+          <div><h3>By model</h3><div id="drivers-model"></div></div>
+          <div><h3>By provider</h3><div id="drivers-provider"></div></div>
+          <div><h3>By reading type / depth</h3><div id="drivers-reading"></div></div>
+          <div><h3>By user</h3><div id="drivers-user"></div></div>
+          <div><h3>Candidate vs judge</h3><div id="drivers-role"></div></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><div><h2>Estimate vs actual</h2><p class="hint">The pre-run estimate recorded when the run started, compared with observed cost.</p></div></div>
+        <div id="estimate-panel"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><div><h2>Monthly cost</h2></div></div>
+        <p class="hint" style="margin:0">Unavailable: authoritative production volume is not configured</p>
+      </section>
+    </div>
+  </main>
+</div>
+<script src="app.js"></script>
+<script>
+const { $, esc, date, api } = JudgeUI;
+let allRuns = [];
+let currentAnalysis = null;
+let currentPricingStatus = null;
+
+const fmtUsd = (value) => {
+  if (value == null) return "unknown";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "unknown";
+  return `$${number !== 0 && Math.abs(number) < 0.01 ? number.toFixed(6) : number.toFixed(2)}`;
+};
+const fmtInt = (value) => (value == null ? "—" : Number(value).toLocaleString());
+const fmtMs = (value) => (value == null ? "unknown" : `${Number(value).toLocaleString()} ms`);
+const chip = (status) => `<span class="pill ${esc(status || "unknown")}">${esc(status || "unknown")}</span>`;
+const sumNullable = (values) => {
+  const known = values.filter((value) => value != null);
+  return known.length ? known.reduce((total, value) => total + value, 0) : null;
+};
+
+function filteredRuns() {
+  const comparisonId = $("comparison-select").value;
+  const days = $("date-filter").value;
+  const cutoff = days === "all" ? null : Date.now() - Number(days) * 24 * 60 * 60 * 1000;
+  return allRuns.filter((run) => {
+    if (comparisonId && run.comparisonId !== comparisonId) return false;
+    if (cutoff && new Date(run.createdAt).getTime() < cutoff) return false;
+    return true;
+  });
+}
+
+function renderSelectors(preserveSelection = true) {
+  const previousRun = preserveSelection ? $("run-select").value : "";
+  const previousComparison = $("comparison-select").value;
+  const comparisons = new Map();
+  for (const run of allRuns) {
+    if (run.comparisonId && !comparisons.has(run.comparisonId)) {
+      comparisons.set(run.comparisonId, run.comparison?.name || run.comparisonId);
+    }
+  }
+  $("comparison-select").innerHTML = '<option value="">All comparisons</option>' + [...comparisons.entries()].map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join("");
+  if (previousComparison && comparisons.has(previousComparison)) $("comparison-select").value = previousComparison;
+  const runs = filteredRuns();
+  $("run-select").innerHTML = runs.map((run) => `<option value="${esc(run.id)}">${esc(run.comparison?.name || "Comparison")} · ${date(run.createdAt)} · ${esc(run.status)}</option>`).join("") || '<option value="">No runs in this filter</option>';
+  if (previousRun && runs.some((run) => run.id === previousRun)) $("run-select").value = previousRun;
+}
+
+function renderPricingReadout() {
+  const parts = [];
+  if (currentAnalysis) {
+    const pricing = currentAnalysis.pricing || {};
+    parts.push(`Run priced with snapshot: <strong>${esc(pricing.snapshotId || "none")}</strong>`);
+    if (pricing.fetchedAt) parts.push(`rates fetched ${esc(date(pricing.fetchedAt))}`);
+  } else {
+    parts.push("Pricing snapshot: —");
+  }
+  if (currentPricingStatus) {
+    const latest = currentPricingStatus.latestValidSnapshot;
+    parts.push(latest
+      ? `Pricing status: valid snapshot ${esc(latest.id)} · last successful sync ${esc(date(latest.createdAt))} · unresolved models ${esc(currentPricingStatus.unresolvedModelCount)}`
+      : 'Pricing status: <span class="warn">no valid pricing snapshot — run a sync from Reviews &amp; settings</span>');
+  }
+  $("pricing-readout").innerHTML = parts.join(" · ");
+}
+
+function setMoneyCard(id, component) {
+  $(id).textContent = fmtUsd(component?.costUsd);
+  $(id + "-note").innerHTML = chip(component?.status || "unknown");
+}
+
+function renderSummaryCards(analysis, run) {
+  setMoneyCard("card-total", analysis.summary?.total);
+  setMoneyCard("card-candidate", analysis.summary?.candidate);
+  setMoneyCard("card-primary", analysis.summary?.primaryJudge);
+  setMoneyCard("card-secondary", analysis.summary?.secondaryJudge);
+  const totalInput = (analysis.byReading || []).reduce((sum, row) => sum + (row.inputTokens || 0), 0);
+  const totalOutput = (analysis.byReading || []).reduce((sum, row) => sum + (row.outputTokens || 0), 0);
+  $("card-tokens").textContent = `${fmtInt(totalInput)} / ${fmtInt(totalOutput)}`;
+  const tokens = analysis.tokens || {};
+  $("card-tokens-note").innerHTML = `median in/out ${fmtInt(tokens.input?.median)} / ${fmtInt(tokens.output?.median)} · p95 ${fmtInt(tokens.input?.p95)} / ${fmtInt(tokens.output?.p95)}`;
+  const latency = analysis.latencyMs || {};
+  $("card-latency").textContent = latency.median == null && latency.p95 == null ? "unknown" : `${fmtMs(latency.median)} / ${fmtMs(latency.p95)}`;
+  $("card-latency-note").innerHTML = chip(latency.median == null ? "unknown" : "known");
+  if (run) {
+    const finished = (run.completedCases || 0) + (run.failedCases || 0) + (run.cancelledCases || 0);
+    $("card-cases").textContent = `${finished}/${run.requestedCases ?? "—"}`;
+    $("card-cases-note").innerHTML = `${esc(run.completedCases ?? 0)} completed · ${esc(run.failedCases ?? 0)} failed · ${esc(run.cancelledCases ?? 0)} cancelled ${chip(run.status === "completed" ? "known" : "partial")}`;
+  } else {
+    $("card-cases").textContent = "—";
+    $("card-cases-note").innerHTML = chip("unknown");
+  }
+  const telemetry = analysis.requestTelemetry || {};
+  $("card-attempts").textContent = fmtInt(telemetry.attempts);
+  $("card-attempts-note").textContent = `${fmtInt(telemetry.succeeded)} succeeded · ${fmtInt(telemetry.failed)} failed · ${fmtInt(telemetry.retryAttempts)} retries · ${fmtInt(telemetry.totalTokens)} tokens`;
+}
+
+function renderWarnings(analysis) {
+  const warnings = analysis.warnings || [];
+  $("warnings-wrap").innerHTML = warnings.length
+    ? `<div class="analysis-summary warn"><strong>Warnings:</strong> ${warnings.map((warning) => esc(warning)).join(" · ")}</div>`
+    : "";
+}
+
+function renderReadingsTable(analysis) {
+  $("readings-table").innerHTML = (analysis.byReading || []).map((row) => `<tr><td>${esc(row.readingType)}</td><td>${esc(row.depth || "—")}</td><td>${esc(row.model || "—")}</td><td>${esc(row.cases)}</td><td>${fmtInt(row.inputTokens)}</td><td>${fmtInt(row.outputTokens)}</td><td>${fmtUsd(row.medianCostUsd)}</td><td>${fmtUsd(row.p95CostUsd)}</td><td>${fmtMs(row.medianLatencyMs)}</td><td>${fmtMs(row.p95LatencyMs)}</td><td>${chip(row.status)}</td></tr>`).join("") || '<tr><td colspan="11" class="empty">No reading data for this run.</td></tr>';
+}
+
+function renderUsersTable(analysis) {
+  $("users-table").innerHTML = (analysis.byUser || []).map((row) => `<tr><td>${esc(row.userKey)}</td><td>${esc(row.cases)}</td><td>${fmtUsd(row.candidateCostUsd)}</td><td>${fmtUsd(row.judgeCostUsd)}</td><td>${fmtUsd(row.totalKnownCostUsd)}</td><td>${esc(row.missingUsageCount)}</td><td>${chip(row.status)}</td></tr>`).join("") || '<tr><td colspan="7" class="empty">No user data for this run.</td></tr>';
+}
+
+function barRows(entries) {
+  const priced = entries.filter((entry) => entry.costUsd != null).sort((a, b) => b.costUsd - a.costUsd).slice(0, 8);
+  if (!priced.length) return '<p class="hint">All costs unknown for this dimension.</p>';
+  const max = Math.max(...priced.map((entry) => entry.costUsd), 0);
+  return priced.map((entry) => {
+    const width = max > 0 ? Math.max(2, Math.round((entry.costUsd / max) * 100)) : 2;
+    return `<div class="bar-row"><span class="bar-label" title="${esc(entry.label)}">${esc(entry.label)}</span><span class="bar-track"><span class="bar-fill" style="width:${width}%"></span></span><span class="bar-value">${fmtUsd(entry.costUsd)}</span></div>`;
+  }).join("");
+}
+
+function renderDrivers(analysis) {
+  const byModel = (analysis.byModel || []).map((row) => ({ label: `${row.provider}/${row.model}`, costUsd: row.costUsd }));
+  $("drivers-model").innerHTML = barRows(byModel);
+  const providerTotals = new Map();
+  for (const row of analysis.byModel || []) {
+    if (!providerTotals.has(row.provider)) providerTotals.set(row.provider, []);
+    providerTotals.get(row.provider).push(row.costUsd);
+  }
+  $("drivers-provider").innerHTML = barRows([...providerTotals.entries()].map(([provider, costs]) => ({ label: provider, costUsd: sumNullable(costs) })));
+  $("drivers-reading").innerHTML = barRows((analysis.byReading || []).map((row) => ({ label: row.depth ? `${row.readingType} · ${row.depth}` : row.readingType, costUsd: row.costUsd })));
+  $("drivers-user").innerHTML = barRows((analysis.byUser || []).map((row) => ({ label: row.userKey, costUsd: row.totalKnownCostUsd })));
+  const summary = analysis.summary || {};
+  $("drivers-role").innerHTML = barRows([
+    { label: "Candidate generation", costUsd: summary.candidate?.costUsd ?? null },
+    { label: "Judges (primary + secondary)", costUsd: sumNullable([summary.primaryJudge?.costUsd ?? null, summary.secondaryJudge?.costUsd ?? null]) },
+  ]);
+}
+
+function renderEstimatePanel(analysis) {
+  const eva = analysis.estimateVsActual;
+  if (!eva) {
+    $("estimate-panel").innerHTML = '<p class="hint" style="margin:0">This run predates estimate capture — no pre-run estimate was recorded, so there is nothing to compare.</p>';
+    return;
+  }
+  const rows = [
+    ["Pre-run estimate (total)", `${fmtUsd(eva.estimate?.total?.costUsd)} ${chip(eva.estimate?.total?.status || "unknown")}`],
+    ["Estimate breakdown", `candidate ${fmtUsd(eva.estimate?.candidate?.costUsd)} · primary judge ${fmtUsd(eva.estimate?.primaryJudge?.costUsd)} · secondary judge ${fmtUsd(eva.estimate?.secondaryJudge?.costUsd)}`],
+    ["Actual cost", `${fmtUsd(eva.actual?.costUsd)} ${chip(eva.actual?.status || "unknown")}`],
+    ["Absolute variance", eva.absoluteVarianceUsd == null ? "unknown" : fmtUsd(eva.absoluteVarianceUsd)],
+    ["Percentage variance", eva.percentageVariance == null ? "unknown" : `${eva.percentageVariance > 0 ? "+" : ""}${eva.percentageVariance}%`],
+    ["Cases (estimated vs actual)", `${fmtInt(eva.cases?.estimated)} vs ${fmtInt(eva.cases?.actual)}`],
+  ];
+  if (eva.tokens?.difference) {
+    rows.push(["Token delta (in / out)", `${eva.tokens.difference.inputTokens > 0 ? "+" : ""}${fmtInt(eva.tokens.difference.inputTokens)} / ${eva.tokens.difference.outputTokens > 0 ? "+" : ""}${fmtInt(eva.tokens.difference.outputTokens)}`]);
+  } else if (eva.tokens?.actual) {
+    rows.push(["Actual tokens (in / out)", `${fmtInt(eva.tokens.actual.inputTokens)} / ${fmtInt(eva.tokens.actual.outputTokens)} (no token estimate recorded)`]);
+  }
+  const assumptions = (eva.assumptions || []).length
+    ? `<h3 style="margin-top:16px">Assumptions</h3><ul class="hint" style="margin:0;padding-left:18px">${eva.assumptions.map((assumption) => `<li>${esc(assumption)}</li>`).join("")}</ul>`
+    : "";
+  $("estimate-panel").innerHTML = `<div class="table-wrap"><table><tbody>${rows.map(([label, value]) => `<tr><th style="white-space:normal">${esc(label)}</th><td>${value}</td></tr>`).join("")}</tbody></table></div>${assumptions}`;
+}
+
+function renderAnalysis() {
+  const analysis = currentAnalysis;
+  if (!analysis) { $("analysis-body").classList.add("hidden"); renderPricingReadout(); return; }
+  const run = allRuns.find((candidate) => candidate.id === analysis.runId) || null;
+  renderPricingReadout();
+  renderSummaryCards(analysis, run);
+  renderWarnings(analysis);
+  renderReadingsTable(analysis);
+  renderUsersTable(analysis);
+  renderDrivers(analysis);
+  renderEstimatePanel(analysis);
+  $("analysis-body").classList.remove("hidden");
+}
+
+async function loadAnalysis(runId) {
+  if (!runId) { currentAnalysis = null; renderAnalysis(); return; }
+  $("cost-status").textContent = "Loading analysis…";
+  try {
+    currentAnalysis = await api(`/api/admin/costs/runs/${encodeURIComponent(runId)}`);
+    $("cost-status").textContent = "";
+  } catch (error) {
+    currentAnalysis = null;
+    $("cost-status").textContent = `Failed: ${error.message}`;
+  }
+  renderAnalysis();
+}
+
+async function loadPricingStatus() {
+  try { currentPricingStatus = await api("/api/admin/pricing/status"); }
+  catch (error) { currentPricingStatus = null; $("cost-status").textContent = `Pricing status unavailable: ${error.message}`; }
+  renderPricingReadout();
+}
+
+async function loadAll(selectRunId) {
+  $("cost-status").textContent = "Loading runs…";
+  try {
+    const data = await api("/api/admin/runs");
+    allRuns = data.runs || [];
+    $("cost-status").textContent = "";
+  } catch (error) {
+    allRuns = [];
+    $("cost-status").textContent = `Failed to load runs: ${error.message}`;
+  }
+  renderSelectors(false);
+  const requested = selectRunId || new URLSearchParams(location.search).get("run") || "";
+  const runs = filteredRuns();
+  const target = requested && allRuns.some((run) => run.id === requested) ? requested : (runs[0]?.id || "");
+  if (target) {
+    if (!runs.some((run) => run.id === target)) {
+      $("comparison-select").value = "";
+      $("date-filter").value = "all";
+      renderSelectors();
+    }
+    $("run-select").value = target;
+  }
+  await loadAnalysis(target);
+}
+
+$("run-select").addEventListener("change", () => loadAnalysis($("run-select").value));
+$("comparison-select").addEventListener("change", () => { renderSelectors(); loadAnalysis($("run-select").value); });
+$("date-filter").addEventListener("change", () => { renderSelectors(); loadAnalysis($("run-select").value); });
+$("refresh-data").addEventListener("click", async () => { const runId = $("run-select").value; await Promise.all([loadPricingStatus(), loadAll(runId)]); });
+
+loadPricingStatus();
+loadAll();
+</script>
+</body>
+</html>

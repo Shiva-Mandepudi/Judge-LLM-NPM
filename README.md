@@ -16,7 +16,7 @@ Admin / operator                     Cosmic Guidance
 |  private, no public       |
 |  ingress)                 |------> Cloud Tasks queue --> Judge Service /internal/worker
 |                           |         (OIDC-authenticated push)
-|  - experiments/datasets   |
+|  - comparisons/runs      |
 |  - judge providers        |------> Anthropic (primary judge) / OpenAI (secondary judge)
 |  - stats/decision engine  |
 |  - human review queue     |
@@ -29,15 +29,15 @@ Admin / operator                     Cosmic Guidance
 
 ### Data flow for one evaluation job
 
-1. An admin creates an **experiment** (track, dataset, baseline/candidate model + prompt version) via `POST /api/admin/experiments`.
-2. `enqueueExperimentJobs` fans the experiment out into one **job** per dataset case and dispatches each asynchronously via Cloud Tasks (or inline in local dev).
+1. An admin creates a **comparison** (candidate model) and starts a **run** for selected users and reading types from the dashboard.
+2. The comparison run fans out into one **job** per selected dataset case and dispatches each asynchronously via Cloud Tasks (or inline in local dev).
 3. The Cloud Tasks push handler (`/internal/worker/run-job`, OIDC-verified) calls `runJob`, which:
    - Calls Cosmic Guidance's internal evaluation-generation interface twice (baseline arm, candidate arm) with the dataset case's de-identified input snapshot.
    - Runs **deterministic checks** (schema validity, numerology/date consistency, safety keyword screen) on each arm's output.
    - Randomly, blindly assigns the two arms to labels A/B (`assignBlindLabels`) so the judge never learns which label is baseline.
    - Calls the **primary judge** (always) and, for a config-sampled fraction of jobs, the **secondary cross-vendor judge**, both with a JSON-schema-forced response (hard-gate pass/fail per label, pairwise winner, rationale, confidence).
    - Persists every generation, deterministic result, and judge score row, and enqueues a **human review** item on hard-gate failure, judge disagreement, or low confidence.
-4. Once enough jobs are `completed`, `POST /api/admin/experiments/:id/compute-results` aggregates all completed jobs into an overall match percentage (from win/tie/loss outcomes), hard-gate results, judge agreement rate, and a `pass | hold | rollback` **recommendation** — which is advisory only; nothing in this service ever writes to production model configuration.
+4. The run report combines current-versus-candidate readings, deterministic checks, primary/secondary judge results, and human-review status. Nothing in this service writes to production model configuration.
 
 ## Repository layout
 
@@ -49,10 +49,10 @@ judge-service/
     config/          admin-managed versioned config (models, thresholds, sample rates)
     providers/       Anthropic / OpenAI / mock judge provider clients
     services/        dataset, generation-client, deterministic-checks, blind A/B, judge-client,
-                      scoring, agreement, stats, decision, human-review, audit, experiment, results
+                      scoring, agreement, stats, decision, human-review, audit, comparison reports
     workers/          job-runner (one job end to end), Cloud Tasks client
-    routes/           experiments, admin, worker (Cloud Tasks push target), health
-  admin-dashboard/    static read-only dashboard (experiments, results, review queue)
+    routes/           comparisons, runs, admin, worker (Cloud Tasks push target), health
+  admin-dashboard/    static dashboard (comparisons/runs and review queue)
   datasets/<track>/<version>/cases.jsonl   versioned synthetic datasets, one dir per track
   migrations/0001_init.sql                 Judge's own Postgres schema
   test/unit, test/integration, test/e2e    see "Testing" below
@@ -63,9 +63,9 @@ judge-service/
 The Judge service owns its **own** Postgres database (`JUDGE_DATABASE_URL`), completely separate from Cosmic Guidance's product DB. No table here has a foreign key into a Cosmic Guidance user/profile/subscription/credit/conversation/reading row — only opaque case identifiers and de-identified input snapshots.
 
 Tables (see `migrations/0001_init.sql`, `migrations/0002_add_per_tag_results.sql`, and `migrations/0003_benchmark_dataset_and_generation_runs.sql` / `shared/schema.ts`):
-`eval_datasets`, `eval_dataset_subjects`, `eval_dataset_cases`, `eval_config_versions`, `eval_reference_runs`, `eval_reference_generations`, `eval_experiments`, `eval_jobs`, `eval_generation_runs`, `eval_generations`, `eval_deterministic_results`, `eval_judge_scores`, `eval_human_review_queue`, `eval_results_summaries`, `eval_audit_log`, `eval_idempotency_keys`.
+`eval_datasets`, `eval_dataset_subjects`, `eval_dataset_cases`, `eval_config_versions`, `eval_reference_runs`, `eval_reference_generations`, `eval_experiments`, `eval_jobs`, `eval_generation_runs`, `eval_generations`, `eval_deterministic_results`, `eval_judge_scores`, `eval_human_review_queue`, `eval_results_summaries`, `eval_audit_log`, `eval_idempotency_keys`, plus pricing snapshots: `eval_pricing_snapshots`, `eval_pricing_rates` (migration 0011; `eval_comparison_runs` also gains `pricing_snapshot_id` / `pricing_status` / `cost_currency`, and `eval_generations` / `eval_judge_scores` gain `cost_status` / `cost_source` / `attempt`).
 
-Apply migrations in order with `psql "$JUDGE_DATABASE_URL" -f migrations/0001_init.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0002_add_per_tag_results.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0003_benchmark_dataset_and_generation_runs.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0004_ground_truth_comparisons.sql`, and `psql "$JUDGE_DATABASE_URL" -f migrations/0006_rebuild_artifacts.sql` (or `npm run db:phase0` for the Phase 0 migration). `npm run db:push` is also available for schema synchronization, but it may detect unrelated legacy drift; use the numbered migration for the Phase 0 tables.
+Apply migrations in order with `psql "$JUDGE_DATABASE_URL" -f migrations/0001_init.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0002_add_per_tag_results.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0003_benchmark_dataset_and_generation_runs.sql`, `psql "$JUDGE_DATABASE_URL" -f migrations/0004_ground_truth_comparisons.sql`, and `psql "$JUDGE_DATABASE_URL" -f migrations/0006_rebuild_artifacts.sql` (or `npm run db:phase0` for the Phase 0 migration), continuing through `psql "$JUDGE_DATABASE_URL" -f migrations/0011_pricing_snapshots.sql` for the pricing-snapshot tables. When `psql` is unavailable, `npm run db:apply -- migrations/<file>.sql` applies any single migration in a transaction through `pg` instead. `npm run db:push` is also available for schema synchronization, but it may detect unrelated legacy drift; use the numbered migration for the Phase 0 tables.
 
 ## Configuration — nothing hardcoded
 
@@ -101,6 +101,9 @@ docker run -d --name judge-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=judge
 psql "postgres://postgres:postgres@localhost:55432/judge_llm" -f migrations/0001_init.sql
 psql "postgres://postgres:postgres@localhost:55432/judge_llm" -f migrations/0002_add_per_tag_results.sql
 psql "postgres://postgres:postgres@localhost:55432/judge_llm" -f migrations/0003_benchmark_dataset_and_generation_runs.sql
+# ... continue through every numbered migration in order, ending with:
+psql "postgres://postgres:postgres@localhost:55432/judge_llm" -f migrations/0011_pricing_snapshots.sql
+# (no psql? `npm run db:apply -- migrations/0001_init.sql` etc. does the same via pg)
 
 # 3. Validate the seed datasets (no DB needed):
 npm run datasets:validate
@@ -126,11 +129,11 @@ requested from CG. The dashboard reports candidate match percentage plus
 per-case inputs, outputs, and judge rationale; it does not present the removed
 cost-rate table or use cost as an evaluation signal.
 
-For CG generation comparisons, enter any `gpt-*` or `gemini-*` model ID in the
-dashboard. CG routes GPT models to OpenAI and Gemini models to Google AI while
-keeping the normal Cosmic Guidance production routing unchanged.
+For CG generation comparisons, select a supported model in the dashboard. CG
+routes GPT models to OpenAI and Gemini models to Google AI while keeping the
+normal Cosmic Guidance production routing unchanged.
 
-## Creating and running an experiment (local, mocked)
+## Creating and running a comparison (local, mocked)
 
 With `LOCAL_INLINE_WORKER=true`, no Cloud Tasks/GCP setup is needed:
 
@@ -139,25 +142,13 @@ With `LOCAL_INLINE_WORKER=true`, no Cloud Tasks/GCP setup is needed:
 #    or real "anthropic"/"openai" providers with real API keys.
 curl -X POST localhost:8081/api/admin/config -H "x-judge-admin-secret: $JUDGE_ADMIN_SHARED_SECRET" -H "content-type: application/json" -d @config.json
 
-# 2. Register a dataset version:
+# 2. Register the dataset version used by the local fixture:
 curl -X POST localhost:8081/api/admin/datasets/register -H "x-judge-admin-secret: $JUDGE_ADMIN_SHARED_SECRET" -H "content-type: application/json" \
   -d '{"track":"numerology","version":"v1"}'
 
-# 3. Create an experiment:
-curl -X POST localhost:8081/api/admin/experiments -H "x-judge-admin-secret: $JUDGE_ADMIN_SHARED_SECRET" -H "content-type: application/json" \
-  -d '{"name":"numerology mini-model test","track":"numerology","datasetId":"<id from step 2>","baselineModel":"<model>","candidateModel":"<model>","baselinePromptVersion":"LifePath_Brief_Prompt.md","candidatePromptVersion":"LifePath_Brief_Prompt.md"}'
-
-# 4. Enqueue jobs (runs inline immediately in local dev):
-curl -X POST localhost:8081/api/admin/experiments/<experimentId>/enqueue -H "x-judge-admin-secret: $JUDGE_ADMIN_SHARED_SECRET"
-
-# 5. Compute results:
-curl -X POST localhost:8081/api/admin/experiments/<experimentId>/compute-results -H "x-judge-admin-secret: $JUDGE_ADMIN_SHARED_SECRET"
-
-# 6. View in the dashboard:
+# 3. Create a comparison, start a run, and open its report in the dashboard:
 open http://localhost:8081/admin/dashboard
 ```
-
-`test/e2e/full-experiment.test.ts` runs exactly this lifecycle programmatically against `test/mock-cosmic-guidance.ts` (a local stand-in implementing the contract in `shared/contract.ts`) and the `mock` judge provider — no GCP or real model API needed.
 
 ## Connecting Cosmic Guidance
 

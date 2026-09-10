@@ -28,6 +28,12 @@ export async function getActiveConfig(db: Db, configKey: string): Promise<{ id: 
   return entry;
 }
 
+export async function getConfigVersion(db: Db, configVersionId: string): Promise<{ id: string; version: number; value: JudgeConfig }> {
+  const [row] = await db.select().from(evalConfigVersions).where(eq(evalConfigVersions.id, configVersionId));
+  if (!row) throw new Error(`Config version ${configVersionId} was not found.`);
+  return { id: row.id, version: row.version, value: judgeConfigSchema.parse(row.value) };
+}
+
 export function invalidateConfigCache(configKey?: string) {
   if (configKey) cache.delete(configKey);
   else cache.clear();

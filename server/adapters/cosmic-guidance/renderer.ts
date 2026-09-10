@@ -5,6 +5,48 @@ import type { TrackSpec } from "../../core/config/schema.js";
 const SVG = /<svg\b[^>]*>[\s\S]*?<\/svg>/gi;
 const IMAGE_DATA = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi;
 const PRIVATE_KEY = /^(person\d+name|birth(name|date|time|city|country)|city|country|nation|location|date|time)$/i;
+const ZODIAC_NAMES: Record<string, string> = { Ari: "Aries", Tau: "Taurus", Gem: "Gemini", Can: "Cancer", Leo: "Leo", Vir: "Virgo", Lib: "Libra", Sco: "Scorpio", Sag: "Sagittarius", Cap: "Capricorn", Aqu: "Aquarius", Pis: "Pisces" };
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function chartPlacement(value: unknown): Record<string, unknown> {
+  const placement = record(value) ?? {};
+  return { ...placement, ...(typeof placement.sign === "string" ? { sign: ZODIAC_NAMES[placement.sign] ?? placement.sign } : {}) };
+}
+
+function canonicalChartInput(value: unknown): unknown {
+  const input = record(value);
+  if (!input || !record(input.chartDetails)) return value;
+  const details = input.chartDetails as Record<string, unknown>;
+  const chartData = record(details.chart_data) ?? {};
+  const sourcePlanets = chartData.planets ?? details.planets;
+  const sourceHouses = chartData.houses ?? details.houses;
+  const sourceAspects = details.aspects ?? chartData.aspects;
+  const planetRecord = record(sourcePlanets);
+  const houseRecord = record(sourceHouses);
+  const planets = Array.isArray(sourcePlanets)
+    ? Object.fromEntries(sourcePlanets.filter((item) => record(item)?.name).map((item) => {
+      const placement = chartPlacement(item);
+      return [String(placement.name), Object.fromEntries(Object.entries(placement).filter(([key]) => key !== "name"))];
+    }))
+    : planetRecord ? Object.fromEntries(Object.entries(planetRecord).map(([name, item]) => [name, chartPlacement(item)])) : {};
+  const houses = Array.isArray(sourceHouses)
+    ? Object.fromEntries(sourceHouses.filter((item) => record(item)?.number !== undefined).map((item) => {
+      const house = chartPlacement(item);
+      return [String(house.number), Object.fromEntries(Object.entries(house).filter(([key]) => key !== "number"))];
+    }))
+    : houseRecord ? Object.fromEntries(Object.entries(houseRecord).map(([number, item]) => [number, chartPlacement(item)])) : {};
+  const aspects = Array.isArray(sourceAspects)
+    ? Object.fromEntries(sourceAspects.filter((item) => record(item)?.planet1 && record(item)?.planet2).map((item) => {
+      const aspect = item as Record<string, unknown>;
+      return [`${String(aspect.planet1)}-${String(aspect.planet2)}`, { aspect_type: aspect.aspect_type, precision: aspect.precision }];
+    }))
+    : record(sourceAspects) ?? {};
+  const topLevel = Object.fromEntries(Object.entries(input).filter(([key]) => key !== "chartDetails"));
+  return { ...topLevel, planets, houses, aspects, ascendant: chartData.ascendant ?? details.ascendant ?? null, mc: chartData.mc ?? details.mc ?? null };
+}
 
 export function removeImageBlobs(value: unknown): unknown {
   if (typeof value === "string") return value.replace(SVG, "[image omitted]").replace(IMAGE_DATA, "[image omitted]");
@@ -58,6 +100,35 @@ function flatten(value: unknown, path = "", fields: Record<string, string | numb
   return fields;
 }
 
+function addCanonicalChartFields(input: unknown, fields: Record<string, string | number | boolean | null>): void {
+  const chart = record(input);
+  if (!chart) return;
+  const planets = record(chart.planets);
+  for (const [name, value] of Object.entries(planets ?? {})) {
+    const placement = record(value);
+    if (!placement) continue;
+    const summary = [placement.sign, placement.house, placement.position].filter((item) => item !== undefined && item !== null).join(", ");
+    if (summary) fields[`planets.${name}`] = summary;
+  }
+  const aspects = record(chart.aspects);
+  for (const [name, value] of Object.entries(aspects ?? {})) {
+    const aspect = record(value);
+    if (!aspect) continue;
+    const summary = [aspect.aspect_type, aspect.precision === undefined ? undefined : `precision ${aspect.precision}`].filter((item) => item !== undefined && item !== null).join(", ");
+    if (summary) fields[`aspects[${name}]`] = summary;
+  }
+  const houses = record(chart.houses);
+  for (const [number, value] of Object.entries(houses ?? {})) {
+    const house = record(value);
+    if (!house) continue;
+    const summary = [house.sign, house.position ?? house.cusp].filter((item) => item !== undefined && item !== null).join(", position ");
+    if (summary) {
+      fields[`houses.${number}`] = summary;
+      fields[`houses[${number}]`] = summary;
+    }
+  }
+}
+
 function text(value: unknown): string {
   if (value === null || value === undefined) return "null";
   if (typeof value === "string") return value;
@@ -79,7 +150,7 @@ function renderPart(label: string, value: unknown): string {
 
 function renderForShape(raw: RawRow): RenderedContent {
   const privateValues = collectPrivateValues(raw.inputSnapshot);
-  const input = redactPrivateContent(removeImageBlobs(raw.inputSnapshot), privateValues);
+  const input = redactPrivateContent(removeImageBlobs(canonicalChartInput(raw.inputSnapshot)), privateValues);
   const candidate = redactPrivateContent(removeImageBlobs(raw.candidateOutput), privateValues);
   const silver = raw.silverOutput === null ? null : redactPrivateContent(removeImageBlobs(raw.silverOutput), privateValues);
   const sections = [
@@ -87,9 +158,11 @@ function renderForShape(raw: RawRow): RenderedContent {
     ...sectionize(candidate, "candidate"),
     ...(silver === null ? [] : sectionize(silver, "silver")),
   ];
+  const fields = flatten(input);
+  addCanonicalChartFields(input, fields);
   return {
     sections,
-    fields: flatten(input),
+    fields,
     text: [renderPart("INPUT DATA", input), renderPart("READING UNDER REVIEW", candidate), ...(silver === null ? [] : [renderPart("SILVER REFERENCE", silver)])].join("\n\n"),
   };
 }
