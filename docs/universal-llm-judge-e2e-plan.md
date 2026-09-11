@@ -1,1138 +1,1970 @@
-# Universal LLM Judge Service — E2E Architecture and Delivery Plan
+# Universal LLM Judge — Complete E2E Implementation Plan
 
-**Status:** Proposed implementation plan  
-**Scope:** `judge-service/` and its future application adapters  
-**Primary source of truth reviewed:** `judge-service/docs/LLM PLAN/`  
-**Architecture reference reviewed:** `judge-service/docs/LLM PLAN/cosmic-guidance-judge-eval-system-flow-napkin-final.png`
+**Status:** Approved architecture; implementation plan
+
+**Canonical document:** judge-service/docs/universal-llm-judge-e2e-plan.md
+
+**Scope:** the universal internal evaluation engine, provider batch integrations, application
+adapters, Cosmic Guidance integration, metrics, statistics, cost accounting, reports, audit,
+and human decision workflow.
+
+**First application:** Cosmic Guidance.
+
+**Future applications:** any application, regardless of programming language, database,
+deployment model, or source-data format.
+
+**Execution rule:** every production LLM request made by this system is submitted through a
+provider batch API. There is no synchronous provider fallback.
+
+**Final authority:** the engine recommends; a human accepts, overrides, or defers.
+
+> A silver reference is a high-quality reference, not truth. Similarity to silver is a
+> separate diagnostic axis and is never the objective function.
 
 ## 1. Executive decision
 
-The Judge service should become a **universal, offline, batch-only evaluation engine**.
-Cosmic Guidance is the first application adapter, not the engine itself. A future product
-must be able to plug in its own data source, rendering rules, deterministic checks, and
-rubric pack without changing the universal judging, evidence validation, statistics, cost,
-reporting, or human-decision code.
+The service will be rewritten as a product-neutral, local-first Python evaluation platform
+using Neon PostgreSQL as its durable operational database.
 
-The canonical lifecycle is:
+### 1.1 Approved stack
 
-```text
-Run configuration
-    ↓
-1. Generate / import data through the selected application adapter and its main source
-    ↓
-2. Materialize, pair, render, blind, pre-check, compose prompts, and judge through batches
-    ↓
-3. Validate evidence, aggregate metrics, calculate cost, report, and route decisions to humans
-```
+| Layer | Decision |
+|---|---|
+| Runtime | Python 3.13, pinned in the project lockfile |
+| Environment and dependencies | uv and pyproject.toml |
+| Local API and dashboard server | FastAPI, bound to localhost |
+| CLI and worker commands | Typer |
+| Contracts and validation | Pydantic v2 and JSON Schema |
+| Database | Neon PostgreSQL |
+| Database driver | Psycopg 3 |
+| Database access | SQLAlchemy 2 |
+| Migrations | Alembic |
+| Provider integrations | official OpenAI, Anthropic, and Google Gemini SDKs behind a local port |
+| Tabular analysis | Polars |
+| Numerical/statistical analysis | NumPy and SciPy |
+| Reports | Markdown, JSON, and optional HTML |
+| Artifacts | local encrypted content-addressed filesystem; metadata in Neon |
+| Logging | Python standard logging as JSON Lines plus database run events |
+| Tests | Pytest, Ruff, and type checking |
+| Deployment | local process or optional local Docker image; no public service |
 
-The picture supplied with this plan expands that lifecycle into eleven operational gates:
+The stack deliberately does not introduce Redis, Celery, Kafka, Airflow, Prefect, Dagster,
+LangChain, LlamaIndex, Kubernetes, or a second operational database.
 
-```text
+### 1.2 The three business stages
+
+~~~text
+Stage 1 — Generate or import source data
+    source application adapter + source batch generation
+
+Stage 2 — LLM analysis
+    universal kernel + application rubric + primary/secondary judge batch jobs
+
+Stage 3 — Cost and decision analysis
+    metric ledger + statistics + cost ledger + reports + human audit
+~~~
+
+The image's eleven operational gates map to the implementation as follows:
+
+~~~text
 Inputs
-  → 1 Materialize + pair
-  → 2 Render + blind
-  → 3 Extract pre-checks
-  → 4 Compose judge
-  → 5 LLM judge
+  → 1 Materialize and pair
+  → 2 Render and blind
+  → 3 Mechanical pre-checks
+  → 4 Compose judge request
+  → 5 Submit and complete LLM batches
   → 6 Validate evidence
-  → 7 Metric ledger
-  → 8 Cost
-  → 9 Statistics
-  → 10 Decision support
-  → 11 Human audit + decision
-```
+  → 7 Write metric ledger
+  → 8 Calculate cost
+  → 9 Calculate statistics
+  → 10 Produce decision support
+  → 11 Human audit and decision
+~~~
 
-The following meanings must stay distinct:
+### 1.3 Non-negotiable invariants
 
-| Concept | Meaning | Current/target rule |
-|---|---|---|
-| Generation arm | A model/prompt/output being evaluated: champion, challenger, or optional silver reference | Generation is application-owned and batch-only |
-| Universal kernel | Product-neutral judging instructions and universal metrics | Reused by every application |
-| Application/reading rubric | Instructions and metrics for one application or reading type | Supplied by an adapter/configuration |
-| Primary/secondary judge | Two judge models used to measure the evaluation instrument's reliability | Primary normally scores every valid row; secondary is configurable, cross-vendor, and can be set to 100% |
-| Cost model | Token, batch, pricing, retry, and roll-up accounting | Covers source generation and judge analysis; unknown is never zero |
+1. The source application may use any technology stack.
+2. The source application owns domain calculations and source-specific generation.
+3. The judge owns evaluation, evidence, metrics, statistics, cost, reports, and audit.
+4. The universal core never imports an application adapter.
+5. Provider calls in a real run are batch calls only.
+6. Source data, prompts, outputs, and results are versioned and hashable.
+7. Model names are hidden from judge payloads through sealed arm mapping.
+8. A score without valid evidence is rejected.
+9. Abstentions are never converted to zero, midpoint, or an imputed score.
+10. Hard gates are not averaged into quality.
+11. Unknown cost is never represented as zero.
+12. Statistics resample the user/subject cluster, not independent rows.
+13. Prompt, rubric, schema, dataset, code, pricing, and statistics versions are pinned.
+14. The system produces a recommendation only when configured evidence gates allow it.
+15. A human decision is the final decision and is permanently recorded.
 
-The universal kernel and the application rubric are **two prompt layers in one composed judge
-request**. They are not two sequential LLM calls. The primary and secondary judge models are
-the two independent analysis models. Keeping these distinctions explicit prevents accidental
-cost doubling and prevents application-specific rules from leaking into the core.
+## 2. Universal scope and ownership
 
-## 2. What exists today
+### 2.1 The engine is application-neutral
 
-### 2.1 Already implemented and reusable
+The engine evaluates generated content from any application. It can judge readings, documents,
+support answers, recommendations, summaries, or other generated content as long as an adapter
+produces the canonical input and output shapes.
 
-| Area | Current implementation | Keep / improve |
-|---|---|---|
-| Service boundary | Private Express service with admin auth, Cloud Run deployment, separate `JUDGE_DATABASE_URL`, no production traffic | Keep |
-| Security | Admin shared-secret auth, Cloud Tasks OIDC auth, HMAC calls to Cosmic Guidance, idempotency keys, structured logging | Keep; apply the same contract to generic adapters and batch callbacks |
-| Configuration | Versioned admin config, provider bindings, thresholds, retry settings, sampling, secrets by reference | Keep; add application/run/batch mode as required fields |
-| Provider abstraction | OpenAI, Anthropic, Gemini, and mock provider modules | Keep provider-neutral interface; replace direct completion as the production path with batch lifecycle methods |
-| Core contracts | `RenderedContent`, `Row`, `Datasource`, `Renderer`, `Stratifier`, `JudgeProvider` ports | Keep; extend ports for source generation, pre-checks, batch jobs, and metric registries |
-| Materialization | `server/core/pipeline/materialize.ts` creates stable row IDs and coverage records | Keep; generalize away from Cosmic Guidance assumptions and support multiple arms/reference rows |
-| Rendering | `server/core/pipeline/render.ts` and Cosmic Guidance renderers produce sections, fields, and text | Keep; make renderer output immutable and sufficient for every evidence reference |
-| Prompt documentation | Universal kernel, output contract, universal metrics, reading-specific packs, silver metrics | Keep as the specification; load/hash them at runtime rather than duplicating prose in code |
-| Evidence validation | Verbatim candidate/reference quote checks, input field/value checks, absence checks, abstention rules | Keep; make it the mandatory post-batch acceptance gate |
-| Mechanical checks | Schema, truncation, safety, numerology, date, and track-specific checks | Keep; separate universal checks from adapter checks and persist all results |
-| Blinding | A/B label assignment and sealed model mapping exist in both legacy and rebuilt paths | Consolidate into one run-level sealed arm map |
-| Statistics design | Cluster bootstrap, paired deltas, Wilson intervals, abstention handling, multiplicity, judge noise design | Implement as the only aggregate path |
-| Human review design | Review queue, reports/audits planned, human decision is final | Complete the queue/report/decision contract and audit trail |
-| Cost foundations | Usage columns, pricing snapshots, request-attempt ledger, cost APIs, pre-run estimates | Reconcile all paths and add batch-aware cost events |
+Cosmic Guidance is the first adapter. It is not the definition of the engine.
 
-### 2.2 Current data-generation and batch work
+### 2.2 Any source-application stack is supported
 
-The repository contains a useful Cosmic Guidance batch prototype:
+The source application may be written in Node.js, Python, Java, Go, .NET, PHP, or another
+technology. It may use PostgreSQL, MySQL, MongoDB, files, or another source system.
 
-- `scripts/prepare-cg-batch-corpus.ts` builds synthetic actor inputs, calls Cosmic Guidance
-  calculation/preparation endpoints, and prepares OpenAI Batch JSONL.
-- `scripts/submit-prepared-openai-batch.ts` submits a prepared batch.
-- `scripts/import-openai-batch.ts` imports output/error files and persists usage.
-- `scripts/prepare-failed-batch-retry.ts` isolates failed requests for a retry batch.
-- `artifacts/batches/` contains imported batch artifacts and retry artifacts.
+The judge does not import source code or source database schema. The adapter connects through a
+versioned boundary such as:
 
-This proves the repository can do a real batch lifecycle, preserve request artifacts, import
-provider results, and retry failed lines. It is not yet the universal implementation because
-the scripts hardcode Cosmic Guidance, OpenAI, a model, dates, tracks, prompt version, and
-Cosmic Guidance-specific input construction.
+- JSONL or CSV export;
+- REST or GraphQL API;
+- database read/export;
+- local CLI;
+- shared filesystem handoff;
+- another source batch system.
 
-### 2.3 Current judge analysis work
+The source boundary must provide stable IDs, immutable dataset/version, source calculation
+version, input hashes, output hashes, and enough metadata to reproduce the batch.
 
-The rebuilt path also contains much of the intended evaluation instrument:
+### 2.3 Source-application responsibilities
 
-- `docs/LLM PLAN/01-judge-prompt/` defines the kernel, output contract, and rubric packs.
-- `docs/LLM PLAN/02-metric-suite/` defines eight universal metrics, reading metrics, gates,
-  and the optional silver-comparison axis.
-- `server/core/judge/schema.ts` generates a structured output schema from metrics.
-- `server/core/judge/validator.ts` rejects invalid evidence and abstention shapes.
-- `server/core/judge/runner.ts` performs a provider call, validates it, and retries once.
-- `server/adapters/cosmic-guidance/evidence-judge.ts` persists judge usage and results.
-- `eval_judgements_v2` stores hashes, model identity, role, usage, status, and response.
+The source application owns:
 
-These are strong building blocks. The production execution mode is the problem, not the
-overall judging contract.
+- source inputs and domain calculations;
+- trusted fact tables and reference values;
+- source-specific generation prompts;
+- source output schema;
+- candidate/champion generation;
+- source-provider batch submission when generation uses an LLM;
+- source output and usage export.
 
-## 3. Important gaps and contradictions to resolve
+The source application may synchronously perform deterministic calculations. It may not cause
+the judge to make a synchronous LLM call. Any LLM provider call in source generation must
+also use a batch process.
 
-### 3.1 The service currently has two pipelines
+### 2.4 Judge-service responsibilities
 
-There is a legacy comparison pipeline:
+The judge owns:
 
-```text
-admin comparison
-  → one Cloud Tasks job per case
-  → standard Cosmic Guidance generation request
-  → direct judge-provider completion call
-  → per-job score
-```
+- run creation and immutable manifests;
+- source batch import and verification;
+- materialization and pairing;
+- rendering and blinding;
+- mechanical integrity pre-checks;
+- universal prompt and rubric composition;
+- provider batch submission, polling, and import;
+- structured-output and evidence validation;
+- metric normalization;
+- quality, safety, usefulness, and comparative analysis;
+- statistical confidence and model comparison;
+- generation and judge cost accounting;
+- reports, audit sampling, and human decisions.
 
-There is also a rebuilt artifact pipeline:
+### 2.5 Silver is not truth
 
-```text
-materialize
-  → render
-  → judge
-  → persisted v2 judgement
-```
+The silver reference is frontier-model-generated and human-reviewed. It is a useful second
+opinion, not an answer key. A challenger may be better than silver.
 
-The OpenAI corpus scripts form a third, partially independent generation pipeline. They use
-real provider batches, but only for a Cosmic Guidance/OpenAI-specific corpus.
+Silver is used for:
 
-The target must have one canonical lifecycle. Legacy tables and historical data can remain
-read-only, but a new run must not silently choose between the legacy and rebuilt behavior.
+- a separate semantic comparison axis;
+- calibration;
+- human-review target selection;
+- a blind-arm quality benchmark when configured.
 
-### 3.2 Production LLM calls are not batch-only today
+Silver is never silently treated as ground truth, included in composite_quality, required in
+absolute evaluation mode, or used as a minimum similarity target.
 
-The following paths violate the requested rule:
+### 2.6 The two judge models
 
-- `server/services/generation-client.ts` calls the Cosmic Guidance generation endpoint for
-  one case at a time.
-- `server/workers/comparison-job-runner.ts` dispatches and executes one generation job per
-  case through Cloud Tasks.
-- `server/core/judge/runner.ts` expects a synchronous completion callback.
-- `server/providers/*` implement direct provider completion calls for judging.
-- `server/adapters/cosmic-guidance/judge.ts` loops through payloads and calls the provider
-  per payload.
-- `LOCAL_INLINE_WORKER=true` executes the same per-case provider path locally.
+Generation models and judge models are independent concepts.
 
-`run.yaml` says `execution.mode: batch`, but that is configuration intent rather than an
-enforced runtime invariant. The target must reject any non-batch provider binding in a real
-run. A standard/inline provider method must not exist on the production execution interface.
-
-Cloud Tasks may still orchestrate **batch lifecycle work**—for example, submit, poll, import,
-and finalize—but it must never be used to turn a batch run into one provider request per
-case.
-
-### 3.3 Provider support is not generic yet
-
-The provider factory is swappable for judge completions, but the generation side is still
-Cosmic Guidance-specific and the real batch implementation is OpenAI-specific. The universal
-provider contract needs these operations:
-
-```text
-prepare(requests) → immutable batch input artifact
-submit(input artifact) → provider batch ID
-getStatus(provider batch ID) → lifecycle status and counts
-downloadResults(provider batch ID) → output/error artifacts
-cancel(provider batch ID) → cancellation result
-```
-
-Every supported provider must implement the same lifecycle. If a configured provider cannot
-perform the required batch operation, the run fails before any LLM request is submitted. There
-is no silent standard-call fallback.
-
-### 3.4 The current comparison and rebuilt judge semantics differ
-
-The legacy schema models a pairwise A/B judge with `dimensionScores`, `hardGateResults`, and
-`pairwiseWinner`. The rebuilt v2 path judges each arm separately using universal and
-track-specific metrics, and the current Cosmic Guidance dataset has no separate silver
-reference. Both shapes exist in the database and report code.
-
-The target canonical result is:
-
-- one result per `(run, row, arm, judgeRole)`;
-- universal metrics and applicable application metrics;
-- hard-gate verdicts and evidence;
-- optional comparative/silver metrics only when a reference is present;
-- no pairwise winner unless a pairwise metric is explicitly configured;
-- aggregate paired deltas computed by the statistics stage.
-
-Pairwise A/B data already stored in legacy tables is historical. It should be decoded for old
-reports but must not be mixed with v2 metric rows in a new statistical result.
-
-### 3.5 “Two models” needs one explicit configuration meaning
-
-The service currently has:
-
-- a baseline/candidate model concept for generation;
-- a primary judge model;
-- a sampled secondary judge model;
-- old model-family independence rules.
-
-The new run configuration must name these independently:
-
-```yaml
-generationArms:
-  - armId: champion
-    provider: openai
-    model: <confirmed model id>
-  - armId: challenger-1
-    provider: <provider>
-    model: <model id>
+~~~yaml
+generation_arms:
+  - arm_id: champion
+    provider: ...
+    model: ...
+  - arm_id: challenger_1
+    provider: ...
+    model: ...
 
 judges:
   primary:
-    provider: <provider>
-    model: <model id>
-    batch: true
+    provider: ...
+    model: ...
+    sample_rate: 1.0
   secondary:
-    provider: <different provider family>
-    model: <model id>
-    batch: true
-    sampleRate: 0.10
-```
+    provider: ...
+    model: ...
+    sample_rate: 0.10
+~~~
 
-The **universal kernel plus application rubric** is one composed prompt sent to each judge.
-If the product requirement is that both judge models score every row, set `sampleRate: 1.0`.
-The existing 10–20% secondary sample is a cost/reliability default, not a hard limitation.
+The universal kernel and application rubric are two prompt layers inside one judge request;
+they are not two LLM calls. Primary and secondary judge models are independent analysis models.
+The secondary sample rate is configurable and can be 1.0.
 
-### 3.6 “Universal” is not yet enforced strongly enough
+The judge family must be independent from generation families where policy requires it. The exact
+champion family must be confirmed before selecting the primary judge.
 
-The intended architecture says `core/` must not know product vocabulary, but product-specific
-logic still leaks through adjacent universal services:
+## 3. Rewrite decisions
 
-- `server/services/deterministic-checks.ts` imports
-  `adapters/cosmic-guidance/track-checks.ts` directly.
-- `shared/contract.ts` hardcodes Cosmic Guidance-style track names and a Cosmic Guidance
-  endpoint shape.
-- `server/adapters/cosmic-guidance/materialize.ts` owns the run entrypoint and config paths.
-- Batch scripts encode Cosmic Guidance calculation and reading construction.
+The current judge-service contains valuable domain and evaluation work, but its runtime is not
+the target architecture.
 
-The fix is a strict adapter port, not more `if (track === ...)` branches in the core.
+### 3.1 Preserve and port
 
-### 3.7 Dataset/reference policy is not aligned with the original plan
+Preserve as specification, fixtures, or domain input:
 
-The LLM plan defines silver as a reference axis and explicitly says silver is not truth. The
-current blocker policy intentionally disables a separate silver reference and
-`includeSilverAsBlindArm` is false. Both are valid modes, but they must be named as modes:
+- universal kernel and output contract;
+- application rubric packs;
+- universal, track, and silver metric definitions;
+- evidence validation rules;
+- stable row IDs and sealed model mapping;
+- dataset and blocker concepts;
+- pricing snapshots and usage records;
+- cluster bootstrap/statistical design;
+- seven decision reports and eight component audits;
+- existing batch JSONL examples and provider result fixtures;
+- Cosmic Guidance renderers and deterministic calculators after adapter isolation.
 
-1. **Absolute evaluation mode:** universal + application metrics; no silver metrics.
-2. **Reference-comparison mode:** the same metrics plus the optional silver-comparison axis.
+### 3.2 Remove from the new production path
 
-No report may describe absolute evaluation as silver comparison, and no missing reference may
-be silently treated as a blank or perfect reference.
+Remove:
 
-### 3.8 Data coverage and model identity are not ready for a paid conclusion
+- Node 20 runtime;
+- Express as core runtime;
+- Drizzle as database layer;
+- Cloud Run as a requirement;
+- Cloud Tasks per-case execution;
+- direct provider completion methods;
+- LOCAL_INLINE_WORKER for real providers;
+- one-provider-request-per-case orchestration;
+- Cosmic Guidance imports inside universal core code.
 
-The current config still has open blockers for:
+Historical tables and reports may remain read-only. They must not be silently mixed with new
+canonical metric rows unless run manifest, prompt hashes, schema, arm semantics, and execution
+mode match.
 
-- confirmation of the champion model ID/family;
-- reconciliation of the imported production batch corpus;
-- final verification of the zodiac generation route.
+## 4. Approved technical architecture
 
-The current `datasets.yaml` marks the corpus unconfirmed and `models.yaml` contains TODO
-judge/challenger values. The engine must continue to produce `NO RECOMMENDATION` or a blocked
-run for these states. A complete-looking report with unresolved provenance is worse than a
-failed run.
+### 4.1 Local process roles
 
-### 3.9 Cost is partly implemented but not yet one authoritative ledger
+~~~text
+judge serve
+  localhost API + dashboard + run/report queries
 
-Pricing snapshots and request-attempt telemetry exist, but the final design must make every
-billable event comparable:
+judge run ...
+  short-lived CLI commands for creating and advancing stages
 
-- source generation request;
-- primary judge request;
-- secondary judge request;
-- invalid-output retry;
-- failed batch line with usage;
-- batch-level provider usage;
-- cache read/write tokens where published;
-- provider-reported cost versus snapshot-calculated cost.
+judge worker --run-id <id>
+  resumable coordinator for source and judge batch submission, polling, and import
+~~~
 
-The current direct judge path and batch import path do not have one shared event model. The
-cost stage must sum only canonical successful/failed attempt events and must not double-count
-the same request from both a batch total and a per-line result.
+There is no distributed queue in the first version. The database state machine makes work
+resumable. The API creates runs or exposes status; the worker performs long operations.
 
-## 4. Target architecture
+### 4.2 Dependency direction
 
-### 4.1 Dependency direction
+~~~text
+                    ┌──────────────────────────────────┐
+                    │ Universal core                   │
+                    │ runs · batches · prompts         │
+                    │ evidence · metrics · stats       │
+                    │ cost · reports · audits          │
+                    └───────────────▲──────────────────┘
+                                    │ ports only
+              ┌─────────────────────┴──────────────────────┐
+              │ Application adapters                         │
+              │ Cosmic Guidance · future applications       │
+              │ source data · renderers · checks · rubrics   │
+              └─────────────────────────────────────────────┘
 
-```text
-                     ┌─────────────────────────────────────┐
-                     │ Universal core                       │
-                     │ run lifecycle · batch orchestration  │
-                     │ blinding · prompts · evidence        │
-                     │ metrics · stats · cost · reports      │
-                     └──────────────────▲──────────────────┘
-                                        │ ports only
-                     ┌──────────────────┴──────────────────┐
-                     │ Application adapters                │
-                     │ Cosmic Guidance · future apps       │
-                     │ source data · calculators · renderers│
-                     │ strata · rubrics · pre-checks        │
-                     └─────────────────────────────────────┘
+              ┌─────────────────────────────────────────────┐
+              │ Provider batch adapters                      │
+              │ OpenAI · Anthropic · Gemini · mock           │
+              └─────────────────────────────────────────────┘
+~~~
 
-                     ┌─────────────────────────────────────┐
-                     │ Provider batch adapters              │
-                     │ OpenAI · Anthropic · Gemini · mock   │
-                     └─────────────────────────────────────┘
-```
+The core may depend on ports but must never import an adapter. Provider adapters know API
+mechanics only; they do not know reading names, application facts, or scoring rules.
 
-The universal core may depend on provider ports and application ports. It must never import
-an application adapter. Provider adapters must know API mechanics only; they must not know
-reading names or scoring rules.
+Boundary checks must fail if core code imports adapter modules or contains application
+vocabulary such as natal, tarot, numerology, zodiac, or my_day outside fixtures.
 
-### 4.2 Minimal universal ports
+### 4.3 Repository layout
 
-```ts
-interface ApplicationAdapter {
-  key: string;
-  listDatasetSubjects(input: DatasetRequest): Promise<SubjectRef[]>;
-  materializeCases(input: MaterializeRequest): Promise<MaterializedCase[]>;
-  render(row: EvaluationRow): RenderedContent;
-  precheck(row: EvaluationRow): PrecheckResult[];
-  getRubric(track: string): RubricPack;
-}
+~~~text
+judge-service/
+├── pyproject.toml
+├── uv.lock
+├── src/judge_service/
+│   ├── cli.py
+│   ├── api/
+│   ├── core/
+│   │   ├── contracts/
+│   │   ├── runs/
+│   │   ├── batches/
+│   │   ├── prompts/
+│   │   ├── blinding/
+│   │   ├── evidence/
+│   │   ├── metrics/
+│   │   ├── statistics/
+│   │   ├── costs/
+│   │   ├── reports/
+│   │   └── audit/
+│   ├── db/
+│   │   ├── models.py
+│   │   ├── repositories.py
+│   │   └── session.py
+│   ├── providers/
+│   │   ├── base.py
+│   │   ├── openai_batch.py
+│   │   ├── anthropic_batch.py
+│   │   ├── gemini_batch.py
+│   │   └── mock_batch.py
+│   └── adapters/
+│       ├── registry.py
+│       ├── cosmic_guidance/
+│       └── fixture_application/
+├── alembic/
+├── config/
+│   ├── applications/
+│   ├── tracks/
+│   ├── metrics.yaml
+│   ├── thresholds.yaml
+│   ├── models.yaml
+│   ├── pricing.yaml
+│   └── run.yaml
+├── prompts/
+│   ├── universal/kernel.md
+│   ├── universal/metrics.md
+│   ├── universal/comparative.md
+│   └── applications/<application>/rubric-packs/
+├── artifacts/
+├── reports/
+├── admin-dashboard/
+├── tests/
+└── docs/
+~~~
 
-interface BatchProvider {
-  prepare(requests: readonly BatchRequest[]): Promise<PreparedBatch>;
-  submit(batch: PreparedBatch): Promise<SubmittedBatch>;
-  status(batch: SubmittedBatch): Promise<BatchStatus>;
-  results(batch: SubmittedBatch): Promise<BatchResults>;
-  cancel(batch: SubmittedBatch): Promise<void>;
-}
-```
+The existing docs/LLM PLAN remains the detailed prompt and metric specification. This
+document is the implementation source of truth for the rewritten runtime.
 
-The exact TypeScript types can be narrower, but these responsibilities must exist. The source
-application adapter may call its own internal preparation/calculation boundary, but the core
-must not reconstruct application prompts or calculations.
+### 4.4 Neon connection policy
 
-### 4.3 Canonical run and artifact identity
+Use:
 
-Every run is immutable after submission except lifecycle status and operational timestamps.
-The run manifest must pin:
+~~~text
+JUDGE_DATABASE_URL_POOLER   application/API/worker connection
+JUDGE_DATABASE_URL_DIRECT   migrations and administrative operations
+~~~
 
-- application adapter and adapter version;
-- dataset version and checksum;
-- selected subjects/cases/tracks;
-- generation arms and opaque arm references;
-- primary/secondary judge provider/model configuration;
-- batch mode and provider batch IDs;
-- universal kernel hash;
-- application rubric hashes;
-- output schema hashes;
-- deterministic-check version;
-- pricing snapshot ID and currency;
-- statistics seed and iteration count;
-- code/build/Git SHA;
-- all open provenance blockers at run creation.
+Use TLS, least-privilege roles, small application pool sizes, and explicit query timeouts.
+Use Neon branches for development, migration testing, integration tests, and destructive-query
+testing. Do not create one branch per evaluation run.
 
-Recommended artifact tree:
+## 5. Universal contracts
 
-```text
-runs/<runId>/
-  manifest.json
-  source/
-    cases.jsonl
-    generation-requests/<provider>/<batch>.jsonl
-    generation-results/<provider>/<batch>.jsonl
-  evaluation/
-    rows.jsonl
-    payloads.blinded.jsonl
-    prechecks.jsonl
-    judge-requests/<judgeRole>/<provider>/<batch>.jsonl
-    judge-results/<judgeRole>/<provider>/<batch>.jsonl
-    invalid.jsonl
-    retry-requests.jsonl
-    scores.jsonl
-  aggregates/
-    metric-ledger.json
-    cost.json
-    stats.json
-    decision-support.json
-  audit/
-    audit-slice.jsonl
-    human-decisions.jsonl
-  reports/
-    report-01-decision-brief.md
-    ...
-```
+### 5.1 ApplicationAdapter
 
-The database stores indexes, statuses, hashes, usage, and searchable structured results. The
-large immutable request/response artifacts live in the artifact store and are referenced by
-content hash.
+~~~python
+class ApplicationAdapter(Protocol):
+    key: str
+    version: str
 
-## 5. Canonical end-to-end flow
+    def validate_dataset(self, request: DatasetRequest) -> DatasetValidation: ...
+    def import_source_batch(self, request: SourceImportRequest) -> SourceImport: ...
+    def prepare_generation(self, request: GenerationRequest) -> list[BatchRequest]: ...
+    def materialize_cases(self, request: MaterializeRequest) -> list[EvaluationCase]: ...
+    def render_input(self, case: EvaluationCase) -> RenderedContent: ...
+    def render_candidate(self, case: EvaluationCase, arm_id: str) -> RenderedContent: ...
+    def run_prechecks(self, case: EvaluationCase) -> list[PrecheckResult]: ...
+    def tracks(self) -> list[TrackSpec]: ...
+~~~
 
-### Input gate — configuration and run creation
+An adapter may use any transport internally. The core sees only canonical objects.
 
-The operator selects:
+### 5.2 BatchProvider
 
-- `applicationKey`, for example `cosmic_guidance`;
-- dataset version and immutable source snapshot;
-- users/subjects and tracks/readings;
-- generation arms to create or import;
-- primary and secondary judge models;
-- absolute or reference-comparison mode;
-- secondary judge sample rate;
-- batch provider and completion window;
-- metric/rubric version;
-- pricing snapshot;
-- run seed and concurrency/shard policy.
+~~~python
+class BatchProvider(Protocol):
+    provider_key: str
 
-The service validates all of the following before accepting the run:
+    def prepare(self, requests: list[BatchRequest]) -> PreparedBatch: ...
+    def submit(self, prepared: PreparedBatch) -> SubmittedBatch: ...
+    def get_status(self, submitted: SubmittedBatch) -> BatchStatus: ...
+    def download_results(self, submitted: SubmittedBatch) -> DownloadedResults: ...
+    def cancel(self, submitted: SubmittedBatch) -> CancelledBatch: ...
+    def normalize_result(self, item: ProviderResult) -> NormalizedResult: ...
+    def normalize_usage(self, item: ProviderResult) -> UsageRecord: ...
+~~~
 
-1. The application adapter exists and is compatible with the dataset.
-2. Every selected track has a renderer, rubric, schema, and pre-check registration.
-3. Every configured provider supports batch mode.
-4. Models are identified by provider/model ID, not inferred from a string.
-5. Judge models are independent from generation families according to the configured policy.
-6. The dataset checksum and case selection are reproducible.
-7. Pricing is available for all selected provider/model/usage-mode combinations, or the run
-   is explicitly marked unpriced and cannot make a cost-based recommendation.
-8. Open blockers are stamped into the manifest and any blocker marked as run-blocking stops
-   the run.
+The production interface has no complete, chat, or generate-one method. The mock provider
+follows the same batch envelope and lifecycle.
 
-No provider call occurs during validation or estimation.
+### 5.3 RenderedContent
 
-### Stage 1 — Generate data by using the main source
-
-This stage creates or imports the content to be evaluated. It has two supported paths with the
-same output contract:
-
-#### Path A: generate through the source application
-
-1. The selected application adapter loads synthetic/de-identified subjects or an immutable
-   source dataset.
-2. It obtains deterministic calculations from the source application's calculator boundary.
-3. It renders or asks the source application to prepare exact production-equivalent prompts.
-4. It creates one batch request per `(run, case, generation arm)`.
-5. The selected generation `BatchProvider.prepare()` writes an immutable JSONL/input artifact.
-6. The provider batch is submitted and its provider batch ID is persisted.
-7. A poller/coordinator records `submitted → in_progress → finalizing → completed/failed`.
-8. Result and error files are downloaded, hashed, and imported by `customId`.
-9. Every case receives a generation result, error status, usage record, or explicit missing
-   result. Missing lines are not silently dropped.
-
-#### Path B: import an existing source batch
-
-1. The operator registers the source batch manifest, provider, model, prompt version, input
-   checksum, output checksum, and completion evidence.
-2. The service verifies the artifact and custom ID coverage.
-3. It imports the same generation result shape as Path A.
-4. The run manifest states that generation was imported rather than submitted by this run.
-
-This is how the existing Cosmic Guidance batch corpus becomes a valid input without forcing
-the universal core to know how it was produced.
-
-#### Stage 1 outputs
-
-Each materialized case must contain:
-
-```json
+~~~json
 {
-  "caseId": "...",
-  "subjectId": "opaque-subject-001",
-  "applicationKey": "cosmic_guidance",
-  "track": "numerology_detailed",
-  "stratum": { "numberType": "life_path", "numberValue": 11 },
-  "inputSnapshot": {},
-  "arms": {
-    "champion": { "output": {}, "schemaValid": true, "generationEventId": "..." },
-    "challenger-1": { "output": {}, "schemaValid": true, "generationEventId": "..." }
+  "sections": [
+    {"name": "Overview", "path": "sections.overview", "text": "..."}
+  ],
+  "fields": {
+    "input.numberValue": 11,
+    "input.numberType": "life_path"
   },
-  "loadStatus": "ok"
+  "text": "complete rendered content",
+  "content_hash": "sha256:..."
 }
-```
+~~~
 
-The stage reports coverage by application, track, reading/depth, subject, stratum, arm,
-provider, and batch. Any missing or malformed output becomes a defect/load status and is
-excluded from LLM judging until resolved.
+fields makes input references resolvable and sections makes missing-section evidence exact.
+Adapters may remove unsafe transport material such as raw SVG when it is not part of evaluation,
+but must record the sanitization rule and resulting hash.
 
-### Stage 2.1 — Materialize and pair
+### 5.4 Canonical evaluation row
 
-Materialization converts source outputs into the stable evaluation atom. Pair all generation
-arms on the same subject, input snapshot, track, stratum, and case key. This pairing is needed
-for fair deltas and cluster bootstrap.
-
-Rules:
-
-- `subjectId` is opaque and is the cluster key; never store a production user foreign key.
-- `caseId` is stable for the dataset version.
-- `armId` is opaque inside judge payloads.
-- A reference/silver arm is optional and never treated as truth.
-- Rows with missing required arms are recorded as incomplete; they are not paired by guessing.
-- The sealed arm map is written once and cannot be overwritten with different contents.
-
-### Stage 2.2 — Render and blind
-
-The application renderer converts each row into:
-
-```ts
+~~~json
 {
-  sections: [{ name, path, text }],
-  fields: { "input.numberValue": 11, "input.numberType": "life_path" },
-  text: "..."
+  "row_id": "sha256(run|case|track|stratum|arm)",
+  "run_id": "run_...",
+  "case_id": "case_...",
+  "subject_id": "opaque_subject_...",
+  "application_key": "cosmic_guidance",
+  "track": "numerology_detailed",
+  "stratum": {"numberType": "life_path", "numberValue": 11},
+  "input_snapshot": {},
+  "arm_id": "arm-1",
+  "candidate_output": {},
+  "reference_output": null,
+  "load_status": "ok"
 }
-```
+~~~
 
-The renderer must make every fact and section that can appear in evidence addressable. It may
-remove unsafe/private transport material such as SVG or image data, but the sanitization rule
-and resulting hash are recorded.
+subject_id is opaque and is the statistical cluster key. It must not be a production user
+foreign key. case_id is stable for the dataset version. Missing, malformed, or mismatched
+arms are recorded as load defects and never paired by guessing.
 
-Blinding then:
+### 5.5 Prompt layers
 
-1. maps real arms to `arm-0`, `arm-1`, etc.;
-2. shuffles their order using the run seed/case ID;
-3. removes provider, model, family, prompt, and arm labels from judge payloads;
-4. writes the real mapping only to a sealed artifact unavailable to prompt, validation, and
-   judging code;
-5. tests payloads for leakage of every configured model/provider string.
+The final judge request is composed in this order:
 
-The judge may receive `rowId` only as an internal envelope binding. It does not need a real
-user or model identity.
-
-### Stage 2.3 — Extract deterministic pre-checks
-
-Pre-checks run before spending judge tokens. They are split into two categories:
-
-#### Universal pre-checks
-
-- input/output schema validity;
-- required sections/fields;
-- empty/truncated output;
-- malformed JSON or encoding;
-- safety and disallowed absolute claims;
-- prompt-injection compliance markers;
-- required evidence source availability;
-- output/reference/input checksum and identity checks.
-
-#### Application adapter pre-checks
-
-The application adapter owns deterministic facts only it can know, such as a calculated
-number, date, card, score, or domain-specific source value. It returns named, versioned checks;
-the core only records and aggregates them.
-
-Pre-check failures do not pretend to be LLM scores. They produce a defect record and can
-short-circuit judging when the configured policy says the row is invalid. A valid row may still
-have a deterministic failure that the judge must inspect, depending on the gate policy.
-
-The defect record includes:
-
-```text
-runId, rowId, armId, checkName, checkVersion, passed, detail,
-severity, sourceField, expected, observed, createdAt
-```
-
-### Stage 2.4 — Compose the judge request
-
-The core builds one deterministic prompt from these layers, in order:
-
-1. universal kernel;
-2. universal metric definitions;
+1. universal judge kernel;
+2. universal metric block;
 3. application/reading rubric pack;
 4. optional comparative/silver metric block;
 5. output contract and abstention rules;
 6. rendered input data;
-7. blinded reading arm(s);
-8. optional blinded reference;
-9. run-specific schema generated from the metric registry.
+7. blinded candidate arm or arms;
+8. optional blinded silver reference;
+9. run-specific structured-output schema.
 
-The prompt composer records SHA-256 hashes for each layer and the final prompt. Prompt text is
-never assembled by the browser or by a product adapter at runtime without being hashed.
+The composer records every layer hash and final payload hash. Prompt text is never assembled
+by the browser or silently changed by an adapter.
 
-The output contract remains strict:
+### 5.6 Judge output contract
 
-- every configured metric must appear;
-- each metric is either a 1–5 score or a declared abstention;
-- hard metrics emit gate status and violation where applicable;
-- scores carry evidence;
+Every response is structured JSON:
+
+~~~json
+{
+  "rowId": "...",
+  "metrics": {
+    "metric_key": {
+      "score": 1,
+      "abstainReason": null,
+      "evidence": {
+        "candidateQuotes": [],
+        "referenceQuotes": [],
+        "inputRefs": [],
+        "absences": [],
+        "rationale": "..."
+      },
+      "gate": "pass",
+      "violation": null
+    }
+  },
+  "overall": {
+    "summary": "...",
+    "confidence": "low",
+    "confidenceReason": "...",
+    "silverComparison": null
+  }
+}
+~~~
+
+Rules:
+
+- score is an integer from 1 to 5 or null;
+- abstention uses exactly one allowed reason;
+- abstention never carries score evidence;
+- hard metrics require gate; failed gate requires violation;
+- every score requires candidate quote, reference quote, input reference, or absence;
 - candidate/reference quotes must be verbatim substrings;
 - input references must resolve to rendered fields and matching values;
-- semantic absences are explicitly marked as judge findings and are eligible for human audit;
-- invalid responses are rejected, never repaired into a valid score.
+- semantic absence claims are flagged for human audit;
+- metric keys must exactly equal configured track rubric keys;
+- invalid output is rejected, never repaired;
+- overall.summary is diagnostic and never aggregated.
+
+Allowed abstention reasons:
+
+~~~text
+no_evidence_in_output
+input_insufficient
+metric_not_applicable
+output_unintelligible
+~~~
+
+Evidence limits default to four candidate quotes, four reference quotes, six input
+references, six absences, and bounded rationale/violation lengths.
+
+## 6. Run configuration and identity
+
+### 6.1 Required configuration
+
+~~~yaml
+run_id: 2026-09-11-sweep-01
+application_key: cosmic_guidance
+adapter_version: 1.0.0
+dataset:
+  key: ab-evaluation
+  version: v1
+  checksum: sha256:...
+  subject_selection: ...
+tracks:
+  - numerology_brief
+  - numerology_detailed
+generation_arms:
+  - arm_id: champion
+    provider: openai
+    model: exact-model-id
+    source_mode: generate_batch
+  - arm_id: challenger_1
+    provider: anthropic
+    model: exact-model-id
+    source_mode: import_batch
+judges:
+  primary:
+    provider: gemini
+    model: exact-model-id
+    sample_rate: 1.0
+  secondary:
+    provider: anthropic
+    model: exact-model-id
+    sample_rate: 0.10
+evaluation_mode: absolute
+silver:
+  enabled: false
+  include_as_blind_arm: false
+statistics:
+  seed: 20260911
+  bootstrap_iterations: 10000
+  confidence_level: 0.95
+pricing_snapshot_id: pricing-2026-09-11
+execution:
+  mode: batch
+  resume: true
+  shard_by: track
+  max_concurrent_shards: 4
+~~~
+
+### 6.2 Validation before any provider call
+
+Confirm:
+
+1. adapter exists and is compatible with dataset;
+2. every track has renderer, rubric, schema, and metric registration;
+3. every provider supports required batch operation;
+4. every model is an exact provider/model ID;
+5. judge independence rules pass or have a human override;
+6. dataset checksum and selection are reproducible;
+7. pricing exists for every model and usage mode, or run is explicitly unpriced;
+8. no run-blocking dataset/model/route blocker is unresolved;
+9. prompts and schemas load and hash;
+10. privacy classification and retention policy are present;
+11. execution mode is batch;
+12. run ID is unique and immutable.
+
+No provider request occurs during validation or estimation.
+
+### 6.3 Run manifest
+
+Pin:
+
+- application and adapter version;
+- dataset and source snapshot checksums;
+- subject, case, and track selection;
+- generation arms and sealed mapping reference;
+- primary and secondary judge configuration;
+- evaluation mode and silver policy;
+- kernel, universal metric, rubric, comparative, and schema hashes;
+- deterministic-check version;
+- pricing snapshot and currency;
+- statistics seed, bootstrap count, and confidence level;
+- code/build/Git identifier;
+- privacy and artifact retention policy;
+- blockers at run creation;
+- every batch artifact hash and provider ID.
+
+Runs are append-only except for status, timestamps, and operational metadata. A changed
+evaluation decision creates a new decision record.
+
+### 6.4 Prerequisites and blockers
+
+These prerequisites are checked before the phase that needs them. They are not hidden
+assumptions:
+
+| ID | Prerequisite | Blocks |
+|---|---|---|
+| P1 | Source/reference and candidate datasets exist with per-track output columns, stable subject/case keys, and the adapter contract reconciled against the real source schema | source and evaluation integration |
+| P2 | Champion exact provider/model ID is confirmed; the current human label is not sufficient | model configuration and cost |
+| P3 | Champion and silver-generator model families are confirmed so judge independence can be checked | judge selection and calibration |
+| P4 | Pricing rates exist for every generation and judge model, including batch usage and cache fields where applicable | paid comparison and cost recommendation |
+| P5 | Every selected source track is reachable through the source application's configured route; a hardcoded provider bypass is not accepted | source generation for that track |
+| P6 | Synthetic or de-identified subjects are used by default; real birth dates, times, places, names, and other identifiers require an explicit privacy decision | all real-data runs |
+
+A blocker may be informational or run-blocking. Every blocker is written into the run
+manifest. A run with a run-blocking blocker cannot submit a provider batch.
+
+## 7. Complete end-to-end flow
+
+### Stage 0 — Input gate and run creation
+
+The operator creates a run through CLI or local API. The service validates it, creates the
+manifest and initial stage, and records an event.
+
+Outputs:
+
+- run ID;
+- immutable manifest;
+- adapter and configuration hashes;
+- status created;
+- no provider calls.
+
+### Stage 1 — Generate or import source data
+
+#### Path A: generate through source adapter
+
+1. Load synthetic or de-identified subjects.
+2. Obtain deterministic source calculations.
+3. Create production-equivalent source generation requests.
+4. Create one batch request per run, case, and generation arm.
+5. Write and hash provider input artifact.
+6. Submit through source BatchProvider.
+7. Persist provider batch ID before polling.
+8. Poll and persist lifecycle transitions.
+9. Download and hash output/error artifacts.
+10. Import every line by deterministic custom ID.
+11. Record usage, cost event, errors, and missing lines.
+
+#### Path B: import an existing source batch
+
+1. Register provider, model, prompt/source versions, input hash, output hash, and completion
+   evidence.
+2. Verify custom-ID coverage and artifact integrity.
+3. Normalize into the same source result contract.
+4. Mark generation mode imported in manifest.
+
+#### Stage 1 output
+
+~~~json
+{
+  "case_id": "case_001",
+  "subject_id": "opaque_subject_001",
+  "application_key": "cosmic_guidance",
+  "track": "numerology_detailed",
+  "stratum": {"numberType": "life_path", "numberValue": 11},
+  "input_snapshot": {},
+  "arms": {
+    "champion": {
+      "output": {},
+      "schema_valid": true,
+      "generation_event_id": "usage_..."
+    },
+    "challenger_1": {
+      "output": {},
+      "schema_valid": true,
+      "generation_event_id": "usage_..."
+    }
+  },
+  "load_status": "ok"
+}
+~~~
+
+Missing or malformed outputs become explicit load statuses such as missing_candidate,
+missing_reference, unparseable, or input_mismatch. They are reported and excluded from
+judging until resolved.
+
+### Stage 2.1 — Materialize and pair
+
+Pair arms using:
+
+~~~text
+subject_id + case_id + track + stratum_key + input_snapshot_hash
+~~~
+
+Rules:
+
+- same input snapshot for every arm;
+- stable row ID from run and case identity;
+- opaque subject IDs only;
+- no pairing by row order;
+- missing arms recorded as incomplete;
+- silver/reference optional;
+- sealed arm map created once and never overwritten.
+
+### Stage 2.2 — Render and blind
+
+The adapter renders input and outputs into RenderedContent. The core then:
+
+1. maps real arms to opaque arm-0, arm-1, and so on;
+2. shuffles order using run seed and row ID;
+3. removes model, provider, family, prompt, and arm labels;
+4. stores real mapping in a sealed artifact inaccessible to prompt, judge, and validation;
+5. scans payloads for configured model/provider strings;
+6. stores blinded payload hashes.
+
+The judge sees no production user ID and no model identity.
+
+### Stage 2.3 — Mechanical pre-checks
+
+Pre-checks are integrity checks, not replacement quality scores.
+
+Universal checks:
+
+- input/output encoding and parseability;
+- source and output schema shape;
+- required rendered sections and fields;
+- empty, placeholder, truncated, or malformed output;
+- stable input snapshot identity across arms;
+- artifact checksum consistency;
+- prompt-injection boundary markers;
+- required evidence field availability;
+- privacy/PII policy violations;
+- duplicate case/arm detection.
+
+Adapter checks may verify:
+
+- calculated number or score;
+- target date;
+- drawn card and orientation;
+- chart or transit identity;
+- trusted reference field presence.
+
+Every check has name, version, expected value, observed value, severity, and source field.
+
+The following remain LLM-judged for valid rows: input_grounding, safety_compliance,
+structural_completeness, and all quality metrics. An unparseable row cannot enter a payload.
+A known adapter defect may be passed as evidence or recorded as a defect, but never converted
+into an artificial 1–5 score.
+
+### Stage 2.4 — Compose judge requests
+
+For every valid blinded row:
+
+1. load universal kernel;
+2. load universal metrics;
+3. load track/application rubric;
+4. add comparative metrics only when silver is enabled;
+5. generate exact output schema;
+6. add rendered input and blinded content;
+7. add evidence and abstention rules;
+8. calculate layer and final hashes;
+9. write request artifact and database row.
+
+Reports refuse to pool different prompt, rubric, or schema hashes.
 
 ### Stage 2.5 — Submit LLM analysis batches
 
 For each judge role:
 
-1. create one batch request per valid blinded row/arm according to the selected judging mode;
-2. persist the exact request artifact and request checksum;
-3. submit through the configured provider's batch API;
-4. persist provider batch ID and completion window;
-5. poll until terminal state;
-6. download output and error artifacts;
-7. import by custom ID, preserving provider request IDs and usage.
+1. select valid rows according to judge sample rate;
+2. shard by provider, model, endpoint, schema-compatible track set, and provider limits;
+3. create immutable input artifacts;
+4. create batch-job and batch-request rows before submission;
+5. submit once and persist provider batch ID;
+6. poll asynchronously;
+7. download output/error artifacts;
+8. import by custom ID;
+9. normalize provider status, usage, and errors.
 
-The default analysis policy is:
+The primary judge normally scores every valid row. The secondary judge defaults to deterministic
+10% and may be configured at 100%. Results are never matched by position.
 
-```text
-primary judge:   every valid row
-secondary judge: deterministic sample, default 10%, configurable to 100%
-```
+There is no standard completion fallback. A provider that cannot satisfy the batch contract
+causes validation failure before submission.
 
-If either judge is configured at 100%, it still runs as a separate batch and remains
-independently identifiable in cost and reliability reports. The secondary judge must be a
-different vendor/model family where the independence policy requires it.
+Scalability mechanics:
 
-There is no direct `complete()` production call. The mock provider may have an in-process
-test implementation, but tests must exercise the same batch request/result envelope so the
-real lifecycle is not hidden.
+- shard by provider, model, endpoint, schema-compatible track set, or track;
+- use deterministic row/custom IDs as idempotency keys;
+- flush an append-only result manifest after every imported batch;
+- resume completed shards without re-submitting completed batches;
+- apply provider-specific rate-limit and transient-error backoff to polling/submission only;
+- keep invalid-result retries separate from transport retries;
+- assert token estimates before submission and flag renderer regressions;
+- run stages after provider import repeatedly without spending additional LLM cost.
 
 ### Stage 2.6 — Validate evidence and isolate invalid results
 
-The importer performs mechanical envelope/schema validation first. The evidence validator then
-checks the full contract against the exact rendered payload.
+Validation order:
 
-For each invalid judge result:
+1. provider envelope;
+2. JSON/schema;
+3. row ID and metric keys;
+4. score/abstention/gate consistency;
+5. candidate quotes;
+6. reference quotes;
+7. input field/value resolution;
+8. absence validation and semantic-absence flagging;
+9. privacy and payload consistency.
 
-1. persist the raw response and all validation issues;
-2. create one isolated retry request containing only that row and the same pinned prompt;
-3. submit the retry through a new provider batch;
-4. accept it only if it passes the same validator;
-5. after one failed retry, mark the row `invalid` and exclude it from quality aggregates;
-6. include invalid rate and reasons in the report and cost ledger.
+For an invalid result:
 
-This implements the image's `retry once → isolate invalid` rule without allowing repeated
-retries to hide a broken prompt or provider.
+1. persist raw response and issues;
+2. create one isolated retry;
+3. submit retry through a new batch;
+4. validate using the same contract;
+5. accept only a valid retry;
+6. after one failed retry, mark invalid and exclude from affected statistics;
+7. record retry cost and invalid rate.
+
+Retries never loop indefinitely and never repair content.
 
 ### Stage 2.7 — Write the metric ledger
 
-The metric ledger is the normalized, queryable output of analysis. It contains one row per
-metric result, not only an aggregate JSON blob:
+One normalized row per metric result:
 
-```text
-runId
-rowId
-subjectId
+~~~text
+run_id
+row_id
+subject_id
+application_key
 track
-armId
-judgeRole
-metricKey
-metricClass       factual | structural | quality | comparative
-gateClass         hard | soft | none
-score             nullable 1..5
-abstainReason     nullable enum
-gate              nullable pass | fail
-evidence          structured JSON
-judgeStatus       valid | invalid | abstained
-promptHash
-judgeBatchId
-```
+stratum_key
+arm_id
+judge_role
+metric_key
+metric_class
+gate_class
+score
+abstain_reason
+gate
+violation
+evidence_json
+judge_status
+prompt_hash
+judge_batch_id
+created_at
+~~~
 
-The ledger is the input to statistics, reports, human review, and quality/cost drill-down.
-No browser-side interpretation of raw provider output is allowed.
+Raw judge response remains separately stored and linked by artifact hash. Browser code never
+interprets raw provider output.
 
-### Stage 3.1 — Aggregate quality metrics
+### Stage 3.1 — Aggregate quality and gates
 
-The implementation follows the LLM plan:
+For every metric, report score, denominator, abstention rate, evidence-channel mix, and CI.
 
-- universal soft metrics and `composite_quality` are comparable across applications;
-- application/reading supplements are reported by track and do not silently enter the
-  universal composite;
-- hard gates are reported separately with failure counts, Wilson intervals, and evidence;
-- conditional metrics abstain rather than score zero;
-- abstentions are never imputed;
-- reference-comparison metrics are absent, not zero, in absolute mode;
-- the report shows score, denominator, abstention rate, evidence channel mix, and CI.
-
-For a multi-arm run, calculate paired deltas against the configured champion/control. Never
-rank an arm based only on similarity to silver or on a single blended quality-cost score.
+- hard gates are separate eliminators;
+- hard gates never enter composite_quality;
+- universal soft metrics enter the universal composite;
+- track supplements remain track diagnostics;
+- conditional metrics abstain when not applicable;
+- comparative metrics are absent, not zero, in absolute mode;
+- paired deltas use the same subject/case across arms.
 
 ### Stage 3.2 — Statistics and decision support
 
-Use the planned paired cluster bootstrap:
+1. Flag models whose hard-gate Wilson upper bound exceeds configured maximum.
+2. Flag models whose candidate_degenerate upper bound exceeds tolerance.
+3. Find quality leader by composite_quality.
+4. Retain models whose interval is within qualityMarginDelta of the leader.
+5. Recommend lowest-cost eligible model; latency breaks cost ties.
+6. Withhold when all models are flagged, evidence is insufficient, or quality is inside judge
+   noise.
+7. Route borderline cases and disagreements to human review.
 
-- resample subjects/users, not independent rows;
-- preserve all tracks/readings/arms for a sampled subject;
-- retain duplicate subject draws;
-- use the run seed and record bootstrap iterations;
-- calculate paired deltas against the champion;
-- report Wilson upper bounds for zero/near-zero gate failures;
-- report judge noise, self-agreement, cross-judge agreement, and gate agreement;
-- apply Benjamini–Hochberg only to the planned primary quality tests;
-- refuse to pool rows with different prompt/rubric hashes.
-
-The decision engine supplies decision support only:
-
-1. eliminate arms with hard-gate or degeneracy upper bounds beyond configured tolerance;
-2. identify quality-eligible arms within the declared quality margin;
-3. choose the lowest-cost eligible arm only after quality/safety eligibility;
-4. return `NO RECOMMENDATION` when evidence is insufficient or all arms are blocked;
-5. mark borderline results for human review.
-
-The engine never mutates production model routing.
+No safety or quality failure can be purchased away with low cost.
 
 ### Stage 3.3 — Cost analysis
 
-Cost must be computed from a canonical event ledger, with these dimensions:
-
-```text
-overall run
-application
-track / reading type / depth
-subject/user cluster (opaque ID)
-generation arm
-judge role
-provider
-model
-batch ID / request ID / attempt
-success / failed / invalid-retry
-usage mode: batch
-```
-
-For every event, persist:
-
-- input/prompt tokens;
-- output/completion tokens;
-- total tokens;
-- cache-read/cache-write tokens where supplied;
-- reasoning/prediction tokens where supplied;
-- provider-reported cost when trusted;
-- snapshot-calculated cost otherwise;
-- cost source and cost status;
-- pricing snapshot ID;
-- batch discount/usage mode;
-- timestamps, latency if available, and provider request ID;
-- error status without secrets or prompt content.
+The canonical usage/cost ledger records source generation, judge, invalid retry, batch,
+provider, model, track, subject, and attempt dimensions.
 
 Cost precedence:
 
 1. trusted provider-reported cost;
-2. run pricing snapshot × recorded usage;
-3. `unknown` if required usage/rate is absent.
+2. recorded usage times immutable pricing snapshot;
+3. unknown when required usage or rate is absent.
 
-`unknown` is not `$0`. A `partial` run reports observed cost and the missing/unknown portion.
-Generation cost and judge cost are always separated, then rolled up by reading and overall.
-Invalid retries are additional cost events; they are not hidden in the original request.
+Unknown is not zero. A partial cost report cannot produce a fully cost-based recommendation.
 
-### Stage 3.4 — Reports and human decision
+### Stage 3.4 — Reports, audit, and human decision
 
-The target report bundle follows the LLM plan:
+Generate seven reports and eight audits described in Section 13. Human actions are:
 
-1. consolidated decision brief;
-2. per-user/subject cost rollup;
-3. per-track model comparison;
-4. per-metric view;
-5. evidence drill-down;
-6. reliability and validity appendix;
-7. sign-off sheet and decision log.
+~~~text
+ACCEPT   accept the engine recommendation
+OVERRIDE select another arm and record the reason
+DEFER    require another run, more data, or a rubric fix
+~~~
 
-The component audits remain independent:
+The human decision is final.
 
-1. dataset;
-2. prompt;
-3. judge;
-4. evidence;
-5. metrics;
-6. statistics;
-7. cost;
-8. gates.
+## 8. Metric suite — authoritative register
 
-Human actions are explicit:
+The registry, configuration, prompt documentation, and reports must reconcile to:
 
-```text
-ACCEPT    accept the engine's recommendation
-OVERRIDE  choose another arm and record why
-DEFER     require another run, more data, or a rubric fix
-```
+| Metric category | Count |
+|---|---:|
+| Universal distinct metrics | 8 |
+| Supplementary distinct metrics | 31 |
+| Supplementary track assignments | 37 |
+| Comparative distinct metrics | 4 |
+| Total distinct metric keys | 43 |
+| Universal hard-gate keys | 3 |
+| Supplementary hard-gate keys | 9 |
+| Total distinct hard-gate keys | 12 |
+| Supplementary hard-gate assignments | 11 |
 
-Every gate firing, judge disagreement, invalid result, low-confidence result, substantive
-reference disagreement, and borderline recommendation enters the audit slice according to
-the configured policy. Human decisions are final and immutable except through a correction
-record.
+The authoritative count is twelve distinct hard-gate metric keys: three universal and nine
+track-specific. A shared key may be assigned to multiple tracks.
 
-## 6. Data model changes
+### 8.1 Universal metrics
 
-Reuse existing tables where their semantics match. Do not create a second parallel database
-for the universal path. The existing legacy comparison tables remain historical/read-only when
-their semantics do not match.
+| Metric | Class | Gate | Composite |
+|---|---|---|---|
+| input_grounding | factual | hard | no |
+| safety_compliance | factual | hard | no |
+| structural_completeness | structural | hard | no |
+| personalization | quality | soft | yes |
+| internal_consistency | quality | soft | yes |
+| voice_alignment | quality | soft | yes |
+| usefulness | quality | soft | yes |
+| language_quality | quality | soft | yes |
 
-### 6.1 Tables to retain and repurpose carefully
+Rules:
 
-| Existing table | Target use |
+- input_grounding catches fabricated or misused supplied facts, not interpretation;
+- safety_compliance catches definitive medical, financial, legal, death, fertility, alarmist,
+  coercive, or instruction-injection behavior;
+- structural_completeness catches missing/empty/truncated sections and template artifacts;
+- personalization detects content unchanged for another input;
+- internal_consistency requires both contradictory candidate quotes;
+- voice_alignment judges accessible, warm, affirming, plainly written style;
+- usefulness requires concrete, proportionate, input-connected guidance where applicable;
+- language_quality judges repetition, padding, grammar, fluency, and register.
+
+### 8.2 Universal composite
+
+~~~text
+composite_quality = weighted mean of:
+  personalization
+  internal_consistency
+  voice_alignment
+  usefulness
+  language_quality
+~~~
+
+Weights are equal by default and live in configuration. A row with an abstention in any
+required soft universal metric is partial, excluded from the composite, and counted.
+
+### 8.3 Track-specific assignments
+
+| Track | Supplementary metric | Gate | Condition |
+|---|---|---|---|
+| natal_brief, natal_detailed | aspect_coverage | soft | none |
+| same | house_domain_accuracy | soft | none |
+| transit_brief, transit_detailed | transit_timing_relevance | soft | none |
+| same | transit_natal_distinction | soft | none |
+| same | timing_specificity | soft | none |
+| synastry_brief, synastry_detailed | bidirectional_fairness | soft | none |
+| same | score_narrative_coherence | soft | none |
+| same | challenge_honesty | soft | none |
+| composite_brief, composite_detailed | union_entity_framing | soft | none |
+| same | score_narrative_coherence | soft | none |
+| same | challenge_honesty | soft | none |
+| number_compatibility_brief, number_compatibility_detailed | canonical_meaning_fidelity | hard | none |
+| same | master_number_handling | hard | master number present |
+| same | number_pair_fidelity | soft | none |
+| same | score_narrative_coherence | soft | none |
+| numerology_brief, numerology_detailed | canonical_meaning_fidelity | hard | none |
+| same | master_number_handling | hard | numberValue in {11,22,33} |
+| same | number_type_discipline | soft | none |
+| same | year_anchoring | soft | numberType = personal_year |
+| tarot_brief, tarot_detailed | card_fidelity | hard | none |
+| same | position_semantics | soft | none |
+| same | spread_coherence | soft | none |
+| same | question_responsiveness | soft | none |
+| my_day | date_correctness | hard | none |
+| same | astronomical_accuracy | hard | none |
+| same | cross_section_coherence | soft | none |
+| same | transit_timing_relevance | soft | none |
+| same | activity_validity | soft | none |
+| same | numerology_day_integration | soft | none |
+| static_scores | injected_value_fidelity | hard | none |
+| same | score_coverage | hard | none |
+| same | value_type_correctness | soft | none |
+| same | score_interpretation_alignment | soft | none |
+| zodiac_profile | sign_attribute_accuracy | hard | none |
+| same | famous_people_plausibility | hard | none |
+| same | archetype_coherence | soft | none |
+| same | cultural_care | soft | none |
+
+Track rules remain in rubric packs. They must not duplicate universal grounding, safety, or
+completeness.
+
+### 8.4 Comparative silver metrics
+
+Added only when include_silver_reference is true:
+
+| Metric | Meaning |
 |---|---|
-| `eval_datasets`, `eval_dataset_subjects`, `eval_dataset_cases` | Immutable dataset/case registry; add application key and stronger provenance if missing |
-| `eval_generation_runs` | Provider batch lifecycle for source generation; enforce `execution_mode = batch` |
-| `eval_prepared_requests` | Immutable source/judge batch request registry |
-| `eval_generations` | Imported generation results and usage; add canonical event linkage if needed |
-| `eval_judgements_v2` | Raw validated judge result per row/role; migrate toward generic arm semantics |
-| `eval_llm_request_attempts` | Attempt-level telemetry and cost source; use for every batch request/result |
-| `eval_pricing_snapshots`, `eval_pricing_rates` | Immutable historical pricing |
-| `eval_run_manifests` | Pinned run configuration and artifact hashes |
-| `eval_deterministic_results` | Pre-check results, once arm/application columns are complete |
-| `eval_human_review_queue`, `eval_audit_log` | Human review and governance |
+| coverage_parity | candidate covers same substantive ground or adds grounded breadth |
+| interpretive_agreement | shared interpretive claims substantively agree; low score is a flag, not truth |
+| depth_parity | reasoning depth is comparable; depth is not length |
+| reference_advantage | which reading better serves the reader from input and purpose |
 
-### 6.2 New or required fields
+Categorical silverComparison:
 
-The minimum generic fields are:
+~~~text
+equivalent
+candidate_richer
+silver_richer
+substantive_disagreement
+candidate_degenerate
+~~~
 
-- `application_key` and `adapter_version`;
-- `run_id` on every source, judge, cost, and metric artifact;
-- `case_id`, `subject_id`, `track`, `reading_key`, `stratum_key`;
-- `arm_id` and sealed-map reference;
-- `batch_id`, `custom_id`, `request_id`, `attempt`;
-- `stage` (`source_generation`, `judge_analysis`, `invalid_retry`);
-- `execution_mode` constrained to `batch` for production;
-- `prompt_hash`, `schema_hash`, `rubric_hash`, `check_version`;
-- `pricing_snapshot_id`, `usage_mode`, `cost_status`, `cost_source`;
-- immutable input/output/request/response checksums;
-- `load_status`, `judge_status`, and `precheck_status`.
+Comparative metrics never enter composite_quality. candidate_degenerate is an eliminator;
+substantive_disagreement enters human audit. There is no minimum similarity gate.
 
-### 6.3 Metric ledger table
+### 8.5 Reference contamination and blind-silver checks
 
-Add a normalized metric-result table if querying JSON responses is insufficient:
+The judge must be tested for anchoring on the silver reference. On an early approximately 10%
+sample, score identical rows twice: once with silver shown and once without silver.
 
-```text
+- If universal scores are materially unchanged, universal scores may be pooled and comparative
+  metrics remain a separate axis.
+- If scores shift systematically, score universal metrics in a reference-free batch and run
+  comparative metrics in a separate silver-enabled batch.
+- The topology decision and its cost impact are recorded in the manifest.
+
+When silver is included as a blind arm, it receives universal metrics and gates but is not
+compared against itself. Silver's score is reported with that asymmetry explicitly.
+
+### 8.6 Shared metric definitions
+
+The following keys are defined once and referenced by multiple packs:
+
+- score_narrative_coherence — synastry, composite, number compatibility;
+- canonical_meaning_fidelity — number compatibility, numerology;
+- master_number_handling — number compatibility, numerology;
+- transit_timing_relevance — transit, My Day;
+- challenge_honesty — synastry, composite.
+
+### 8.7 Aggregation
+
+| Level | Computed |
+|---|---|
+| Per row/metric | score, gate, abstention, evidence, status |
+| Per track/arm/metric | mean, CI, denominator, abstention rate, evidence mix |
+| Per track/arm | universal composite, supplement mean, gates, comparative axis, cost |
+| Per subject/arm | universal metrics and complete reading-set cost |
+| Consolidated | universal metrics, gates, cost, reliability; supplements stay track diagnostics |
+
+## 9. Dataset and track scope
+
+The Cosmic Guidance adapter includes seventeen tracks:
+
+| Track | Strata | Rows per subject |
+|---|---|---:|
+| natal_brief | chart complexity, birth-time known | 1 |
+| natal_detailed | chart complexity, birth-time known | 1 |
+| transit_brief | chart complexity, season | 1 |
+| transit_detailed | chart complexity, season | 1 |
+| synastry_brief | partner archetype | 1 |
+| synastry_detailed | partner archetype | 1 |
+| composite_brief | partner archetype | 1 |
+| composite_detailed | partner archetype | 1 |
+| number_compatibility_brief | master-number present | 1 |
+| number_compatibility_detailed | master-number present | 1 |
+| numerology_brief | numberType × 6 | 6 |
+| numerology_detailed | numberType × 6 | 6 |
+| tarot_brief | spread, reversed count, question present | 1 |
+| tarot_detailed | spread, reversed count, question present | 1 |
+| my_day | day, moon phase, season | 1 |
+| static_scores | chart complexity | 1 |
+| zodiac_profile | sun sign | 1 |
+
+This is twenty-seven rows per subject. Numerology contributes twelve; all other tracks
+contribute fifteen. At 100 subjects that is 2,700 rows per generation arm.
+
+Numerology is exhaustive:
+
+- all 71 canonical values are covered;
+- both depths produce 142 distinct content pieces;
+- every master-number case is human-reviewed;
+- coverage is not treated as a sampled estimate.
+
+Excluded tracks remain explicit and do not silently enter runs:
+
+- contextual chat;
+- profile image;
+- unbuilt cosmic answers;
+- deterministic free tools;
+- pre-authored/static non-LLM content;
+- disconnected or non-functional tracks.
+
+## 10. Statistics and decision rules
+
+### 10.1 Unit and cluster
+
+One row is a subject, track, stratum, and arm. One cluster is one subject. Shared subject
+characteristics make rows from one subject non-independent.
+
+~~~text
+DEFF ≈ 1 + (m − 1) × ICC
+n_effective ≈ n_rows / DEFF
+~~~
+
+Report ICC, design effect, and effective sample size beside every pooled statistic.
+
+### 10.2 Paired cluster bootstrap
+
+For each of 10,000 iterations:
+
+1. sample subjects with replacement;
+2. include every selected subject row for every arm, track, and stratum;
+3. preserve duplicate subject draws;
+4. calculate each arm metric mean over scored rows;
+5. calculate challenger minus champion deltas on same sampled subjects;
+6. take percentile confidence intervals;
+7. add visible BCa intervals for materially skewed composite statistics.
+
+Use a fixed recorded seed. Abstentions are excluded from means but reported beside every mean.
+
+### 10.3 Proportions and gates
+
+Bootstrap gate failures, abstentions, degeneracy, substantive disagreement, and unparseable
+rates by cluster. Also calculate Wilson intervals. For zero failures, the Wilson upper bound
+is the operational signal rather than a claim of zero risk.
+
+### 10.4 Judge reliability
+
+| Check | Default |
+|---|---|
+| Same-judge rejudge | 10% sample; at least 90% within ±1 |
+| Cross-vendor judge | 10% sample; at least 70% within ±1 |
+| Gate agreement | separately reported |
+| Judge noise | SD of paired rejudge differences per metric |
+| Noise-aware ranking | inside noise band means indistinguishable |
+| Sanity floor | deliberately weak arm ranks last on every track |
+| Silver blind arm | report scores and suspicious uniform advantage |
+
+Low cross-judge agreement requires rubric review, not threshold lowering. Gate disagreements
+enter the human audit slice.
+
+### 10.5 Multiple comparisons
+
+Apply Benjamini–Hochberg only to primary paired composite-quality tests. Report raw and
+adjusted p-values. Do not correct descriptive diagnostics or zero-tolerance gates.
+
+### 10.6 Pilot and sample size
+
+Run an approximately thirty-subject pilot. Measure paired standard deviation and judge noise,
+then estimate the subject count required per track. Do not assume 100 is adequate for every
+track. Numerology uses its complete finite input space.
+
+### 10.7 Recommendation procedure
+
+~~~text
+1. Gate flag:
+   flag if any hard-gate Wilson upper bound exceeds configured tolerance.
+
+2. Degeneracy flag:
+   flag if candidate_degenerate upper bound exceeds tolerance.
+
+3. Quality eligibility:
+   retain models whose composite-quality interval can be within qualityMarginDelta of leader.
+
+4. Cost selection:
+   among eligible, unflagged models, recommend lowest cost per reading.
+   Break cost ties with median latency.
+
+5. Withhold:
+   return NO RECOMMENDATION if all models are flagged, evidence is incomplete, or differences
+   are inside judge noise without a meaningful cost distinction.
+~~~
+
+Thresholds are product decisions, not facts. Reports include sensitivity tables for quality
+margin and gate tolerances.
+
+### 10.8 Refusals
+
+The engine must refuse to:
+
+- pool different prompt, rubric, or schema hashes;
+- impute abstentions;
+- rank models within judge noise as meaningful;
+- compare cost with unknown pricing or usage;
+- combine safety, quality, and cost into one scalar;
+- hide ICC or design effect;
+- call a gate passed from zero observed failures without Wilson bounds;
+- treat silver similarity as truth;
+- recommend when a blocking audit failed.
+
+## 11. Cost analysis
+
+Cost is a first-class output at reading, subject, run, provider, model, and overall levels.
+
+### 11.1 Cost event dimensions
+
+~~~text
+run
+application
+track / reading type / depth
+subject cluster
+generation arm
+judge role
+provider
+model
+batch ID
+request ID
+attempt
+stage: source_generation | judge_analysis | invalid_retry
+status: success | failed | invalid | unknown
+usage_mode: batch
+~~~
+
+Record input, output, total, cached, reasoning/prediction tokens when supplied, provider
+request ID, timestamps, pricing snapshot, cost source, status, and calculated cost.
+
+### 11.2 Per-reading cost
+
+~~~text
+cost = input_tokens / 1,000,000 × input_rate
+      + output_tokens / 1,000,000 × output_rate
+      + cache_read_tokens / 1,000,000 × cache_read_rate
+      + cache_write_tokens / 1,000,000 × cache_write_rate
+~~~
+
+Report median and p95 cost, input/output tokens, and latency per track, arm, and judge model.
+Use median because output length is right-skewed.
+
+### 11.3 Output-token ceilings preserved in configuration
+
+These are ceilings, not actual usage, and must be verified against the source adapter:
+
+| Track family | Brief | Detailed |
+|---|---:|---:|
+| natal | 6,000 | 16,000 |
+| transit | 6,000 | 16,000 |
+| synastry | 6,000 | 16,000 |
+| composite | 6,000 | 16,000 |
+| number compatibility | 2,000 | 3,500 |
+| numerology | 2,000 | 2,000 |
+| tarot | 2,000 | 3,000 |
+| my day | — | 4,000 |
+| static scores | — | 4,000 |
+| zodiac profile | — | 6,000 |
+
+### 11.4 Per-subject cost
+
+~~~text
+cost_per_subject(config) = sum(cost(row) for that subject's complete reading set)
+~~~
+
+Report median, p95, and cluster-bootstrap CI. Always compare champion_uniform, champion on all
+tracks, against per_track_optimal, the recommended model independently per track.
+
+### 11.5 Consolidated cost
+
+~~~text
+projected_total = sum(volume[track] × cost_per_reading[track, selected_arm])
+~~~
+
+Print the source of every track volume. If a track volume is unknown, report per-reading cost
+only and mark consolidated projection partial. Never use an unweighted cross-track sum.
+
+### 11.6 Judge cost and caching
+
+Judge input includes kernel, universal metrics, rubric, rendered input, candidate output, and
+optional silver output. Judge output includes scores, evidence, rationales, gates, and status.
+
+Rich evidence is intentional: it makes the judge falsifiable. Do not lower evidence limits
+below two quotes where a metric requires both sides of a contradiction.
+
+Prompt caching is an optimization, not an assumption. Record projected and observed cache
+tokens. Batch pricing and discounts come from the pricing snapshot, not a hardcoded percentage.
+
+### 11.7 Estimate before spending
+
+The estimate command runs materialization, rendering, and prompt preparation without provider
+submission and prints per shard:
+
+- row count;
+- estimated input/output tokens;
+- cacheable prefix;
+- provider/model/role cost;
+- unknown rates;
+- source and judge totals;
+- retry allowance.
+
+An estimate is required before a full sweep.
+
+## 12. Neon database model
+
+### 12.1 Core tables
+
+~~~text
+eval_applications
+eval_datasets
+eval_dataset_cases
+eval_artifacts
+eval_runs
+eval_run_stages
+eval_run_arms
+eval_run_events
+eval_source_results
+eval_evaluation_rows
+eval_rendered_payloads
+eval_prompt_versions
+eval_precheck_results
+eval_batch_jobs
+eval_batch_requests
+eval_batch_results
+eval_judge_results
 eval_metric_results
-  id
-  run_id
-  row_id
-  subject_id
-  arm_id
-  judge_role
-  metric_key
-  metric_class
-  gate_class
-  score
-  abstain_reason
-  gate
-  violation
-  evidence_json
-  status
-  prompt_hash
-  created_at
-```
+eval_usage_events
+eval_pricing_snapshots
+eval_pricing_rates
+eval_reports
+eval_audit_items
+eval_human_decisions
+~~~
 
-This table is not a replacement for the raw response. It is the ledger used by statistics and
-reports.
+### 12.2 Relationships and constraints
 
-## 7. Cosmic Guidance as the first adapter
+- every run-scoped table references run_id;
+- every batch job has provider, model, stage, artifact hash, and lifecycle state;
+- every batch request has deterministic custom_id and unique batch/job identity;
+- every result references exactly one request and may be imported once;
+- every judge result references prompt, schema, and rubric hashes;
+- every metric result references one judge result and one definition;
+- every usage event references one source, judge, or retry attempt;
+- every report references immutable aggregate artifact hashes;
+- every human decision references a report and audit version.
 
-The current Cosmic Guidance work becomes `server/adapters/cosmic-guidance/` and must implement
-the generic ports:
+### 12.3 Status values
 
-| Adapter responsibility | Existing source | Target action |
-|---|---|---|
-| Synthetic subject/input source | `AB Dataset.xlsx`, imported dataset, `datasource.ts` | Normalize into opaque subject/case records; remove unnecessary PII from persisted payloads |
-| Deterministic calculator | `calc-snapshot` and existing CG calculators | Keep source-owned; store calculator version and output checksum |
-| Source prompt preparation | `prepare-cg-batch-corpus.ts`, CG preparation endpoint | Move model/track/date constants into adapter config; return generic `BatchRequest`s |
-| Source batch generation | OpenAI Batch scripts | Wrap in `BatchProvider`; retain artifacts and import logic |
-| Track mapping | `track-map.ts`, `config/tracks/*.yaml` | Keep in adapter/config; core sees only stable track keys |
-| Rendering | `renderer.ts` and track render logic | Keep; guarantee evidence-addressable fields/sections |
-| Track checks | `track-checks.ts` | Expose through adapter pre-check port; remove direct import from universal service |
-| Rubric packs | `docs/LLM PLAN/01-judge-prompt/rubric-packs/` | Keep as adapter-owned content referenced by track config |
-| Coverage/blockers | `blockers.yaml`, dataset manifests | Stamp into run manifest and rows; block unsafe activation |
+Run:
 
-The first production acceptance target is not “all 17 tracks pass.” It is:
+~~~text
+created, validating, ready, running, partially_complete, blocked,
+completed, failed, cancelled, decided
+~~~
 
-```text
-Cosmic Guidance adapter → generic batch generation → generic judge batches
-→ generic evidence/metrics/cost/reporting
-```
+Stage:
 
-Numerology can remain the first vertical slice, followed by Tarot/My Day, charts, static
-scores, and zodiac as specified in the LLM plan. Unsupported or blocked tracks remain visible
-as `NO RECOMMENDATION`; they do not fall back to the legacy standard path.
+~~~text
+pending, running, waiting_provider, importing, validating,
+completed, partially_complete, blocked, failed
+~~~
 
-## 8. Future application adapter contract
+Batch:
 
-Adding a new application must require only:
+~~~text
+prepared, uploaded, submitted, validating, in_progress, finalizing,
+completed, partially_failed, failed, expired, cancelling, cancelled, imported
+~~~
 
-1. application adapter implementation;
-2. application dataset export/import contract;
-3. track/reading configuration;
-4. application rubric packs;
+### 12.4 Artifact storage
+
+Large immutable files remain in local encrypted content-addressed storage:
+
+~~~text
+artifacts/<sha256-prefix>/<sha256>
+~~~
+
+Neon stores artifact type, hash, path, size, creation time, retention time, and encryption
+metadata. Raw prompts and provider responses do not go into logs. Small validated evidence
+and report data may be JSONB.
+
+## 13. Reporting and human review
+
+Re-running reports after changing weights or thresholds does not re-run LLM batches.
+
+### 13.1 Seven decision reports
+
+1. **Consolidated decision brief** — recommendation, quality CI, delta versus champion, gates,
+   cost, latency, confidence banner, and blocking issues.
+2. **Per-subject cost rollup** — median/p95 cost, CI, tail subject, track contribution, and
+   missing/unparseable readings.
+3. **Per-track model comparison** — every metric, composite, supplements, gates, silver axis,
+   cost, latency, frontier, sensitivity table, and recommendation trace.
+4. **Per-metric view** — distributions, SD, entropy, discrimination, abstention, agreement,
+   noise, evidence mix, and inter-metric correlation.
+5. **Evidence drill-down** — rendered input, candidate/reference output, quotes, input refs,
+   absences, rationale, gate, raw response, and validation result.
+6. **Reliability and validity appendix** — audits, manifest, hashes, seed, bootstrap count,
+   and revealed model map after scoring.
+7. **Sign-off and decision log** — accept/override/defer, selected model, reason, reviewer,
+   date, and component-audit decisions.
+
+Outputs are Markdown, machine-readable JSON, and optional HTML.
+
+### 13.2 Eight component audits
+
+#### Audit 1 — Dataset
+
+Check:
+
+- 100% same-input correspondence across arms;
+- declared stratum coverage;
+- all 71 numerology values;
+- load-status breakdown;
+- byte-identical input snapshots;
+- PII policy;
+- duplicate subject/track/stratum detection.
+
+#### Audit 2 — Prompt
+
+Check:
+
+- one kernel/rubric/schema hash per comparable track;
+- human-readable composed prompt sample;
+- zero model/provider leakage in blinded payloads;
+- cache-prefix behavior where configured;
+- schema/rubric key parity.
+
+#### Audit 3 — Judge
+
+Check:
+
+- same-judge agreement;
+- cross-vendor agreement;
+- gate agreement;
+- judge noise band;
+- sanity-floor ranking;
+- silver blind-arm behavior;
+- judge-family independence;
+- invalid/error/retry rates.
+
+#### Audit 4 — Evidence
+
+Check:
+
+- candidate quote verbatim rate;
+- reference quote verbatim rate;
+- input field resolution rate;
+- input value match rate;
+- exact versus semantic absence split;
+- semantic absence human spot-check;
+- evidence-channel mix;
+- zero accepted empty-evidence scores.
+
+#### Audit 5 — Metrics
+
+Check:
+
+- score distribution and >80% single-value flags;
+- SD and entropy;
+- inter-metric correlation and >0.9 redundancy flags;
+- abstention versus expected conditional abstention;
+- 31/9/37/11 register reconciliation;
+- composite-weight sensitivity.
+
+#### Audit 6 — Statistics
+
+Check:
+
+- synthetic bootstrap recovery;
+- cluster-resampling duplicate behavior;
+- ICC and design effect;
+- effective sample size;
+- Wilson intervals;
+- BH correction on primary tests;
+- seed reproducibility;
+- no abstention imputation;
+- prompt-hash pooling guard.
+
+#### Audit 7 — Cost
+
+Check:
+
+- rate-table completeness;
+- provider billing reconciliation;
+- per-row to run-total token reconciliation;
+- projected versus actual cache savings;
+- estimate accuracy per shard;
+- volume assumption disclosure;
+- unknown/partial cost handling.
+
+#### Audit 8 — Gates
+
+Check:
+
+- planted defect caught by every distinct hard-gate metric;
+- gate firing counts;
+- untested gate labels;
+- 100% human review of real gate failures;
+- false-positive rate;
+- cross-judge gate agreement;
+- conditional-gate correctness.
+
+Any failed audit appears in the blocking-issues banner and cannot be silently ignored.
+
+### 13.3 Human review sequence
+
+1. Read confidence banner and blocking issues.
+2. Review component audits.
+3. Review metric discrimination and redundancy.
+4. Review evidence samples per track.
+5. Review every hard-gate firing.
+6. Review recommendation and threshold sensitivity.
+7. Review cost consequence.
+8. Record accept, override, or defer with required reasons.
+
+## 14. Observability and privacy
+
+### 14.1 Run events
+
+Every meaningful operation writes JSON logging and an eval_run_events record containing:
+
+~~~text
+run_id
+stage
+event
+entity_type
+entity_id
+status
+occurred_at
+started_at
+finished_at
+duration_ms
+attempt
+provider
+model_ref
+provider_batch_id
+request_count
+success_count
+failure_count
+error_code
+artifact_hash
+~~~
+
+Logs never contain API keys, raw prompts, full responses, PII, or model identity during
+blinded evaluation.
+
+Track observed provider timing separately from model latency. Batch APIs generally provide job
+lifecycle timestamps, not exact per-request compute duration. Do not invent precision the
+provider did not supply.
+
+OpenTelemetry may be added later for local traces and metrics. It is not required initially
+because database events and JSON logs provide the required observability.
+
+### 14.2 Privacy controls
+
+The process is local, but Neon and external providers are remote privacy boundaries.
+
+| Class | Default policy |
+|---|---|
+| Synthetic/public | may be stored and sent normally |
+| Internal | minimize raw Neon storage; use approved provider project/settings |
+| Personal/sensitive | redact/pseudonymize; keep raw artifacts local/encrypted; use local inference if necessary |
+
+Required controls:
+
+- no raw prompt/response in logs;
+- no production user foreign keys in rows;
+- PII scan before source and judge batch;
+- redaction/pseudonymization before provider submission;
+- TLS for Neon;
+- least-privilege database role;
+- provider keys in environment/OS secret storage;
+- artifact retention and deletion policy;
+- localhost-only API by default;
+- dashboard access control when needed;
+- provider-specific data-retention review before real-data runs.
+
+If data cannot leave the local environment, external provider evaluation is not allowed for
+that run. A local model runner can later implement the same BatchProvider port.
+
+## 15. Cosmic Guidance adapter
+
+| Responsibility | Target implementation |
+|---|---|
+| Source subjects | synthetic/de-identified dataset with opaque IDs |
+| Calculations | source-owned deterministic calculator results |
+| Source generation | provider batch requests using source prompts |
+| Source batch | existing OpenAI batch preparation/import behind generic lifecycle |
+| Track mapping | adapter-owned YAML/config |
+| Renderers | one renderer per output shape returning RenderedContent |
+| Track checks | adapter pre-check registry |
+| Rubrics | application-owned rubric packs |
+| Coverage/blockers | manifest and run-blocking validation |
+| Trusted facts | immutable input snapshot/reference tables |
+
+First vertical slice:
+
+~~~text
+Cosmic source batch
+  → numerology materialization
+  → render and blind
+  → primary judge batch
+  → evidence validation
+  → metric ledger
+  → statistics and cost
+  → report and human decision
+~~~
+
+Then add secondary judging, silver/reference mode, Tarot/My Day, chart tracks, static scores,
+and zodiac.
+
+## 16. Future application onboarding
+
+To add another application, provide:
+
+1. adapter registration and version;
+2. source import/generation contract;
+3. canonical case materializer;
+4. renderer returning RenderedContent;
 5. application deterministic pre-checks;
-6. provider/model and pricing configuration.
+6. track definitions and strata;
+7. application rubric packs;
+8. metric assignments;
+9. generation/provider configuration;
+10. pricing configuration;
+11. synthetic fixture dataset;
+12. adapter contract tests.
 
-It must not require changes to:
+No changes should be needed in the universal kernel, evidence validator, batch state machine,
+provider-neutral orchestration, metric ledger, statistics, cost aggregation, report format, or
+human decision semantics.
 
-- the universal kernel;
-- evidence validation;
-- batch lifecycle state machine;
-- cost calculations;
-- cluster bootstrap/statistics;
-- dashboard aggregate APIs;
-- human decision semantics.
+The second application is a mandatory boundary test.
 
-A second adapter should be added as a boundary test. The test must prove that a non-Cosmic
-Guidance adapter can run materialization, rendering, prompt composition, mock batch judging,
-validation, cost aggregation, and report generation without importing Cosmic Guidance code.
+## 17. Delivery phases and exit gates
 
-## 9. Delivery phases and exit gates
+### Phase 0 — Contracts and scope freeze
 
-### Phase 0 — Freeze the canonical contracts
+Implement:
 
-**Work**
+- Python project skeleton;
+- Pydantic contracts;
+- run manifest;
+- application/provider ports;
+- metric registry counts;
+- absolute/reference mode;
+- judge sample-rate semantics;
+- batch-only execution validation;
+- legacy path read-only marker.
 
-- decide whether the first run is absolute mode or reference-comparison mode;
-- confirm the meaning and coverage of the two judge models;
-- define generic `ApplicationAdapter` and `BatchProvider` ports;
-- add `batch` as a runtime-enforced execution mode;
-- define run/batch/request/metric/cost IDs and statuses;
-- mark legacy standard-call paths read-only/deprecated;
-- close or explicitly retain dataset/model blockers.
+Exit gate:
 
-**Exit gate**
+- standard-only provider configuration cannot start;
+- no core import of an adapter;
+- run manifest is reproducible without provider call.
 
-- a config with a standard-only provider cannot start;
-- no production code path can call a provider synchronously;
-- a run manifest can be created without application-specific branching in core.
+### Phase 1 — Neon foundation and local operations
 
-### Phase 1 — Generic batch provider layer
+Implement:
 
-**Work**
+- SQLAlchemy models and Alembic migrations;
+- pooled/direct Neon connections;
+- repositories and transactions;
+- artifact store;
+- run/stage/event state machine;
+- JSON logging;
+- Typer commands;
+- FastAPI status/report endpoints;
+- localhost dashboard serving.
 
-- implement prepare/submit/status/results/cancel for each supported provider;
-- wrap OpenAI Batch first using existing scripts as fixtures/reference;
-- implement Anthropic/Gemini only after their actual batch contracts are pinned;
-- implement a mock batch provider with delayed lifecycle and output/error files;
-- persist batch state transitions, custom IDs, checksums, and import manifests;
-- add provider-level retry rules for submission/polling/import, separate from invalid-row retry.
+Exit gate:
 
-**Exit gate**
+- create, resume, block, fail, and complete a mock run;
+- every transition has timestamps and database events;
+- process restart does not lose state.
 
-- the same core test passes with mock and OpenAI-shaped batch fixtures;
-- duplicate import is idempotent;
-- missing, duplicate, unknown, and late custom IDs are detected;
-- no standard completion API is used.
+### Phase 2 — Generic provider batch layer
 
-### Phase 2 — Generic Stage 1 source generation
+Implement:
 
-**Work**
+- mock batch provider;
+- OpenAI batch adapter using existing fixtures;
+- lifecycle normalization;
+- deterministic custom IDs;
+- result/error import;
+- usage normalization;
+- isolated invalid retry;
+- duplicate/missing/unknown result detection;
+- provider sharding limits.
 
-- move Cosmic Guidance preparation into its adapter;
-- produce source generation batch requests for champion and challenger arms;
-- import existing `cg-production-batch-only-20260828` as a verified artifact;
-- store deterministic calculator provenance and output checksums;
-- unify imported and newly generated output shapes;
-- enforce coverage and `NO RECOMMENDATION` status.
+Exit gate:
 
-**Exit gate**
+- mock and OpenAI-shaped fixtures use identical core code;
+- repeated import is idempotent;
+- no direct completion method exists in production interfaces.
 
-- one Cosmic Guidance run produces a complete materialized case set from a batch;
-- the same source output can be re-rendered without another provider call;
-- generation cost reconciles from line usage and batch metadata;
-- PII minimization and artifact access rules pass review.
+### Phase 3 — Generic source generation and Cosmic adapter
 
-### Phase 3 — Generic Stage 2 analysis batches
+Implement:
 
-**Work**
+- source import and source batch generation;
+- Cosmic calculators and renderers behind adapter ports;
+- generation arms and output contracts;
+- coverage/blocker checks;
+- source cost events;
+- existing batch corpus verification.
 
-- consolidate row materialization, pairing, rendering, blinding, and pre-checks;
-- compose universal kernel + universal metrics + adapter rubric + output contract;
-- submit primary and secondary judge batches;
-- import structured results;
-- implement one isolated invalid-output retry batch;
-- persist evidence-gated metric ledger rows;
-- migrate v2 judging away from the per-job standard path.
+Exit gate:
 
-**Exit gate**
+- one Cosmic source run produces complete canonical cases;
+- imported and newly generated batches have the same shape;
+- source costs reconcile.
 
-- every valid row is either validly scored, validly abstained, or explicitly invalid;
-- no model/provider identity leaks into blinded payloads;
-- quotes, input refs, absence scopes, gates, and abstentions are mechanically validated;
-- primary/secondary analysis uses the same prompt hashes and run manifest.
+### Phase 4 — Judge prompts, blinding, and evidence
 
-### Phase 4 — Metrics, statistics, and cost
+Implement:
 
-**Work**
+- kernel/metric/rubric loading and hashes;
+- per-track schema generation;
+- arm sealing and payload leakage tests;
+- primary/secondary judge batches;
+- structured response validation;
+- evidence validator;
+- abstention handling;
+- one retry and invalid quarantine;
+- normalized metric ledger.
 
-- implement universal and track metric registry from `config/metrics.yaml`;
-- implement normalized metric ledger aggregation;
-- implement paired cluster bootstrap and Wilson intervals;
-- implement judge reliability/noise calculations;
-- implement full canonical cost event ledger and per-reading/overall rollups;
-- remove unresolved rate assumptions from paid-run eligibility;
-- implement estimate-versus-actual variance.
+Exit gate:
 
-**Exit gate**
+- a valid row is scored, abstained, or explicitly invalid;
+- every accepted score has valid evidence;
+- no model identity leaks;
+- invalid output never becomes a score through repair.
 
-- known-effect bootstrap fixture recovers its effect;
-- zero-failure gates show Wilson upper bounds;
-- all cost totals reconcile to attempt events;
-- unknown prices/usages remain unknown and block cost-based recommendations;
-- source generation and judge analysis totals are separately visible.
+### Phase 5 — Metrics, statistics, and cost
 
-### Phase 5 — Reports, audit, and human decision
+Implement:
 
-**Work**
+- all 43 metric keys and track assignments;
+- composite and supplement aggregation;
+- silver comparative axis;
+- cluster bootstrap and Wilson intervals;
+- judge reliability/noise;
+- BH adjustment;
+- canonical usage/cost ledger;
+- estimate versus actual;
+- quality/cost decision support;
+- NO RECOMMENDATION behavior.
 
-- implement the seven reports and eight audits;
-- add evidence drill-down by reading, arm, user/subject, metric, and batch;
-- add audit sampling and every-gate-failure review;
-- add accept/override/defer decision API and immutable decision log;
-- make final reports fail closed on unresolved audit blockers.
+Exit gate:
 
-**Exit gate**
+- known-effect bootstrap fixture passes;
+- all hard-gate planted defects are detected;
+- cost totals reconcile;
+- unknown prices remain unknown;
+- recommendations are withheld when gates/audits fail.
 
-- a human can reconstruct any recommendation from manifest → payload → response → evidence →
-  metric → statistic → decision;
-- human decision is the only final decision state;
-- no report presents the engine as truth or production authority.
+### Phase 6 — Reports, audit, and human decision
 
-### Phase 6 — Adapter boundary and application onboarding
+Implement:
 
-**Work**
+- seven reports;
+- eight audits;
+- evidence drill-down;
+- review sampling;
+- accept/override/defer decisions;
+- immutable human decision history;
+- threshold sensitivity tables.
 
-- add a tiny non-Cosmic fixture adapter;
-- run the entire pipeline using only the fixture adapter;
-- remove all universal imports of Cosmic Guidance modules and vocabulary;
-- add application registration/config validation;
-- document the adapter onboarding checklist.
+Exit gate:
 
-**Exit gate**
+- reviewer can trace recommendation from manifest to raw response and evidence;
+- report separates recommendation from human decision;
+- every blocking audit is visible.
 
-- the second adapter runs without core changes;
-- dependency-direction and vocabulary tests pass;
-- application-specific rubrics/checks remain outside core.
+### Phase 7 — Second application boundary and cutover
 
-### Phase 7 — Retire the legacy runtime path
+Implement:
 
-Only after the new pipeline passes the full gates:
+- fixture application adapter;
+- complete adapter-independent E2E run;
+- dependency/vocabulary boundary tests;
+- Cosmic track expansion;
+- retirement of per-case Cloud Tasks/direct provider paths;
+- documentation and operational runbook.
 
-- stop creating new jobs through the per-case standard generation path;
-- stop direct provider completion calls in production;
-- keep legacy tables and historical reports read-only;
-- remove or quarantine `LOCAL_INLINE_WORKER` for real providers;
-- update README/API/dashboard language to say batch-only;
-- require new runs to use the universal run manifest and artifact tree.
+Exit gate:
 
-Do not add a long-lived dual-write or track-by-track fallback. A track that is not ready is
-blocked or reported `NO RECOMMENDATION`.
+- second adapter runs without core modifications;
+- all new runs use universal manifest and batch lifecycle;
+- old runtime paths are read-only or removed.
 
-## 10. Testing and verification matrix
+### Track rollout order after the foundation
 
-### Contract and boundary tests
+The order is based on iteration cost and calibration value, not product importance:
 
-- core imports no application adapter;
-- core contains no application/domain vocabulary outside fixtures;
-- a second fixture adapter can execute the core;
-- every track has a renderer, rubric, metric assignment, and schema;
-- universal metric/register counts reconcile with the documentation.
+1. **Numerology brief and detailed** — one integer input, finite 142-case space, cheap
+   judge requests, exact grounding, conditional master-number and personal-year behavior.
+   Score all 142 content pieces and manually review all master-number cases.
+2. **Statistics, cost, and pilot calibration** — run every configured arm on numerology,
+   validate bootstrap recovery, cost reconciliation, metric register, evidence audits, and
+   calculate the required subject count per later track from the pilot.
+3. **Judge calibration** — run same-judge rejudge, cross-vendor judge, reference-contamination
+   check, silver blind-arm check, human audit slice, Reports 6 and 7, and planted defects for
+   every gate reachable so far. Do not proceed while agreement or human defensibility fails.
+4. **Tarot and My Day** — validate card orientation/position, General guidance behavior,
+   date correctness, astronomical accuracy, activity validity, and cross-section coherence.
+5. **Chart tracks** — natal, transit, synastry, composite, and number compatibility. These
+   are more expensive and less structurally constrained; require discriminating aspect,
+   house, timing, bidirectional, union, pair-fidelity, and score-narrative results.
+6. **Static scores and zodiac profile** — validate exact injected-score fidelity, score
+   coverage, sign attributes, and the famous-person plausibility hallucination trap. Unknown
+   famous-person facts must produce input_insufficient abstention, not guessing.
+7. **Full sweep and decision** — all 17 tracks and all arms, all seven reports, all eight
+   audits, billing reconciliation, human review, and per-track decisions.
+8. **Hardening** — restart/resume under failures, provider backoff, shard parallelism, report
+   polish, retention cleanup, and scheduled reruns such as annual personal-year regeneration.
 
-### Batch lifecycle tests
+Every track rollout requires its applicable planted-defect tests. A gate that has never fired
+is labelled UNTESTED, not passed. A deliberately weak sanity-floor arm must be included in the
+full sweep; if it does not rank last on every track, the judge results are void.
 
-- prepare artifact is deterministic;
-- submission is idempotent;
-- provider status transitions are persisted;
-- polling resumes after process restart;
-- duplicate output lines are rejected;
-- missing output/error lines are detected;
-- unknown custom IDs are quarantined;
-- failed line can be retried in an isolated batch;
-- provider usage and batch totals do not double-count;
-- cancellation does not erase completed usage.
+## 18. Testing and verification matrix
 
-### Judge/evidence tests
+### 18.1 Contract tests
 
-- model/provider names never appear in blinded payloads;
-- invalid schema is rejected;
-- paraphrased quote is rejected;
-- invalid input field/value is rejected;
-- present section cannot be declared missing;
-- empty-evidence score is rejected;
-- conditional metric abstention is accepted;
-- hard-gate failure requires a concrete violation;
-- one invalid retry is attempted, then the row is isolated.
+- Pydantic contracts reject missing IDs and invalid status combinations;
+- every track has renderer, rubric, schema, and metric registration;
+- metric totals reconcile to 43/12/37/11;
+- second fixture adapter executes without Cosmic imports;
+- application adapters cannot change universal metric definitions.
 
-### Statistics/cost tests
+### 18.2 Batch tests
 
-- paired cluster bootstrap preserves all rows for sampled subjects;
-- known injected effect is recovered;
+- deterministic preparation;
+- provider status transitions;
+- retry-safe polling;
+- restart/resume;
+- output-order independence;
+- duplicate custom ID rejection;
+- missing-result detection;
+- unknown custom ID quarantine;
+- error-file import;
+- cancellation and expiry handling;
+- isolated failed-line retry;
+- usage/cost non-duplication.
+
+### 18.3 Blinding and prompt tests
+
+- no model/provider/family strings in blinded payloads;
+- sealed arm map inaccessible to prompt/judge code;
+- prompt hashes reproduce payloads;
+- schema keys equal rubric keys;
+- reference-free and reference-enabled modes distinct;
+- silver cannot be compared with itself.
+
+### 18.4 Evidence tests
+
+- paraphrased quote rejected;
+- quote from wrong output rejected;
+- missing input field rejected;
+- mismatched input value rejected;
+- required missing section resolved exactly;
+- semantic absence flagged rather than trusted;
+- empty evidence rejected;
+- gate failure requires violation and evidence;
+- abstention shape is valid and unscored.
+
+### 18.5 Metric/statistics tests
+
+- composite excludes gates and supplements;
+- conditional metrics abstain exactly when expected;
+- known bootstrap effect recovered;
+- duplicate cluster draws preserve all rows;
 - same seed reproduces intervals;
-- Wilson upper bound is non-zero for zero failures;
-- abstentions are not imputed;
+- Wilson upper bound exists for zero failure;
+- BH applies only to primary tests;
 - prompt-hash mismatch blocks pooling;
-- generation and judge cost reconcile to event ledger;
-- unknown price never becomes zero;
-- batch discount/usage mode is reflected in cost;
-- estimate-versus-actual variance is reported.
+- discrimination and redundancy reports work.
 
-### E2E gates
+### 18.6 Cost/privacy tests
 
-1. mock source batch → imported generation rows;
-2. mock primary/secondary judge batches → validated scores;
-3. deterministic pre-check failure → defect/audit path;
-4. invalid judge output → isolated retry → invalid quarantine;
-5. missing batch line → incomplete run/no recommendation;
-6. gate failure → evidence drill-down and human review;
-7. cost reconciliation → reading and overall rollups;
-8. accepted/overridden/deferred human decision → immutable audit record;
-9. Cosmic Guidance adapter → same generic flow;
-10. second fixture adapter → same generic flow without core changes.
+- selected model rates exist or run is unpriced;
+- per-row usage sums to batch/run usage;
+- source and judge cost remain separate;
+- invalid retry cost is additional;
+- estimate/actual variance is reported;
+- logs contain no prompt, response, key, or PII;
+- PII fixture is rejected or redacted according to policy;
+- artifact retention/deletion works.
 
-## 11. Definition of done
+### 18.7 End-to-end gates
 
-The universal judge service is complete when all of the following are true:
+1. mock source batch to canonical generation rows;
+2. mock primary/secondary judge batch to validated metrics;
+3. Cosmic Guidance adapter through generic path;
+4. second fixture adapter without core changes;
+5. pre-check defect path;
+6. invalid judge result to isolated retry and quarantine;
+7. missing batch result to incomplete run and no recommendation;
+8. hard-gate failure to evidence drill-down and human review;
+9. cost reconciliation at reading and overall levels;
+10. accepted, overridden, and deferred decisions;
+11. report regeneration without another provider call;
+12. process restart and resume from every batch lifecycle state.
 
-- every production LLM call made by the service is a provider batch call;
-- the source application owns source prompts/calculations and the Judge owns evaluation;
-- the universal kernel is reused unchanged across applications unless intentionally versioned;
-- application-specific reading rubrics and checks are adapter-owned;
-- primary and secondary judge models are independently configured and costed;
-- generation arms, judge models, and prompt layers are not conflated;
+## 19. Definition of done
+
+The rewritten universal judge is complete when:
+
+- service runs locally using approved Python stack and Neon;
+- source application can be any stack through an adapter boundary;
+- source generation and judge analysis are batch-only for real providers;
+- no direct provider fallback exists;
+- universal core is independent from Cosmic Guidance;
+- all 43 metrics and 12 distinct hard-gate keys are registered;
+- all 17 first-application tracks are represented and unsupported tracks are explicit;
+- numerology's 71-value/142-content exhaustive policy is enforced;
+- prompts, rubrics, schemas, data, code, pricing, and statistics are versioned;
 - every score is evidence-grounded or explicitly abstained/invalid;
-- every batch request/result/attempt has a reproducible artifact and checksum;
-- costs are visible overall, per application, per reading, per subject, per arm, per judge, and
-  per model;
-- missing usage/prices are visible as unknown/partial, never zero;
-- statistics preserve pairing and clustering and expose judge noise;
-- recommendations are withheld when gates, coverage, evidence, or audits fail;
-- humans accept, override, or defer and their decision is final;
-- adding a second application requires an adapter/config/rubric, not core engine changes.
+- invalid results are retried once and then isolated;
+- run events include status, timestamps, duration, attempts, and provider IDs;
+- generation and judge cost are separately and jointly reported;
+- unknown cost never becomes zero;
+- cluster statistics, judge noise, Wilson bounds, and multiplicity are reported;
+- silver similarity is a separate axis, never truth or composite objective;
+- seven reports and eight audits are generated;
+- failed audits block or visibly qualify recommendations;
+- a human records final accept/override/defer decision;
+- a second application adapter runs without universal-core changes.
 
-## 12. Immediate next actions
+## 20. Immediate implementation order
 
-1. Confirm whether the first target run is absolute mode or reference-comparison mode.
-2. Confirm whether the secondary judge scores a sample or every row; set the config explicitly.
-3. Close the champion-model, corpus-reconciliation, and zodiac-route blockers or leave the run
-   blocked with visible reasons.
-4. Introduce the generic `BatchProvider` contract and make `execution.mode: batch` enforced.
-5. Freeze the legacy standard comparison path from creating new production runs.
-6. Wrap the existing OpenAI batch scripts behind the generic source batch provider interface.
-7. Build the mock batch E2E vertical slice before adding another real provider.
-8. Migrate one Cosmic Guidance track—numerology is the planned first slice—through the full
-   source batch → judge batch → evidence → metrics → cost → report flow.
-9. Add a second fixture adapter before declaring the core universal.
-10. Only then expand to the remaining Cosmic Guidance tracks and paid full sweeps.
+1. Create Python project and lockfile.
+2. Create Neon schema, migrations, connection roles, and artifact registry.
+3. Implement Pydantic contracts and run/stage/event state machine.
+4. Implement mock batch provider and resumable worker.
+5. Port existing OpenAI batch fixtures behind BatchProvider.
+6. Implement generic adapter registry and fixture application.
+7. Implement Cosmic Guidance source import/generation adapter.
+8. Implement materialization, rendering, blinding, and leakage tests.
+9. Implement kernel/rubric/schema composition and hashes.
+10. Implement primary judge batch, result import, evidence validation, and one retry.
+11. Run numerology vertical slice end to end.
+12. Implement metric-ledger aggregation and hard-gate reporting.
+13. Implement bootstrap, Wilson intervals, judge reliability, and decision support.
+14. Implement generation/judge cost events, estimates, and reconciliation.
+15. Implement seven reports and eight audits.
+16. Add secondary judge and silver/reference mode.
+17. Add second application adapter boundary test.
+18. Expand remaining Cosmic Guidance tracks.
+19. Retire legacy direct-call and per-case orchestration paths.
 
+The first successful run is not the finish line. It must be reproducible, auditable,
+cost-reconciled, evidence-valid, and human-reviewable before it is used to make a model
+recommendation.
