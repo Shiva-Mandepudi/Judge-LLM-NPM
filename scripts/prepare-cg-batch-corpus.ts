@@ -9,7 +9,7 @@ import { resolveSecret } from "../server/lib/secrets.js";
 
 const MODEL = "gpt-5.6-sol";
 const DATASET_TRACK = "cg_batch_corpus";
-const DATASET_VERSION = "cg-production-batch-only-20260828";
+const DATASET_VERSION = "GPT 5.6 SOL Dataset";
 const PROMPT_VERSION = "cg-production-current";
 const TRANSIT_DATE = "2026-08-28";
 const TAROT_QUESTION = "What do I need to understand about the past, present, and future of my current life journey?";

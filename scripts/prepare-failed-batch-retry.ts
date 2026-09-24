@@ -7,7 +7,7 @@ import { pool } from "../server/db.js";
 const MODEL = "gpt-5.6-sol";
 const ENDPOINT = "/v1/chat/completions";
 const EXPERIMENT_ID = process.argv[2];
-const DATASET_VERSION = "cg-production-batch-only-20260828";
+const DATASET_VERSION = "GPT 5.6 SOL Dataset";
 const SOURCE_RETRY_VERSION = process.argv[3];
 const RETRY_VERSION = process.argv[4] ?? (SOURCE_RETRY_VERSION ? `${SOURCE_RETRY_VERSION}-2` : "retry-20260903");
 const SOURCE_DIRECTORY = path.resolve(process.cwd(), "artifacts", "batches", DATASET_VERSION, SOURCE_RETRY_VERSION ?? "");
